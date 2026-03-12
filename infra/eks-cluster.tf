@@ -31,20 +31,22 @@ module "eks" {
   }
 }
 
-# Create access entry for IAM principal
+# Create access entries for IAM principals
 resource "aws_eks_access_entry" "admin_access" {
+  for_each     = toset(var.eks_admin_principal_arns)
   cluster_name  = module.eks.cluster_name
-  principal_arn = var.eks_admin_principal_arn
+  principal_arn = each.value
   type          = "STANDARD"
 
   depends_on = [module.eks]
 }
 
-# Associate cluster admin policy with the access entry
+# Associate cluster admin policy with the access entries
 resource "aws_eks_access_policy_association" "admin_policy" {
+  for_each     = toset(var.eks_admin_principal_arns)
   cluster_name  = module.eks.cluster_name
   policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
-  principal_arn = var.eks_admin_principal_arn
+  principal_arn = each.value
 
   access_scope {
     type = "cluster"

@@ -13,8 +13,11 @@ variable "aws_region" {
   description = "AWS region"
 }
 
-variable "eks_admin_principal_arn" {
-  type        = string
-  default     = "arn:aws:iam::659934583510:user/Felipe_Cavichiolli"
-  description = "IAM principal ARN to grant EKS cluster admin access (e.g., arn:aws:iam::123456789012:user/username)"
+variable "eks_admin_principal_arns" {
+  type        = list(string)
+  default     = [
+    "arn:aws:iam::659934583510:user/Felipe_Cavichiolli",
+    "arn:aws:iam::659934583510:root"
+  ]
+  description = "List of IAM principal ARNs to grant EKS cluster admin access (e.g., arn:aws:iam::123456789012:user/username, arn:aws:iam::123456789012:root)"
 }
