@@ -25,12 +25,12 @@ resource "helm_release" "prometheus_stack" {
     "${file("${path.module}/values/values-prometheus.yaml")}"
   ]
 
-  # Ensure StorageClass and ALB controller exist before deploying
-  depends_on = [
-    kubernetes_storage_class_v1.gp3,
-    helm_release.alb_controller
-  ]
-}
+#   # Ensure StorageClass and ALB controller exist before deploying
+#   depends_on = [
+#     kubernetes_storage_class_v1.gp3,
+#     helm_release.alb_controller
+#   ]
+# }
 
 resource "helm_release" "blackbox" {
   name       = "blackbox-exporter"
