@@ -29,9 +29,6 @@ nodeExporter:
 
 prometheus:
   prometheusSpec:
-    initContainers:
-      - name: init-config-reloader
-        ports: []
     retention: 10d
     retentionSize: 50GB
     scrapeInterval: 15s

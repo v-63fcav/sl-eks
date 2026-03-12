@@ -20,6 +20,10 @@ resource "helm_release" "prometheus_stack" {
 
   namespace        = "prometheus-stack"
   create_namespace = true
+  wait             = true
+  timeout          = 900
+  atomic           = true
+  cleanup_on_fail  = true
 
   values = [
     "${file("${path.module}/values/values-prometheus.yaml")}"
