@@ -17,7 +17,7 @@ resource "helm_release" "adot_collector" {
   name       = "adot-collector"
   repository = "https://aws-observability.github.io/helm-charts"
   chart      = "opentelemetry-collector"
-  version    = "0.50.0"
+  version    = "0.89.0"
 
   namespace        = "observability"
   create_namespace = true
