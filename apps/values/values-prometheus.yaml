@@ -1,7 +1,15 @@
 defaultRules:
   create: true
+
 grafana:
   enabled: true
+  persistence:
+    enabled: true
+    type: pvc
+    storageClassName: gp3
+    accessModes:
+      - ReadWriteOnce
+    size: 10Gi
   ingress:
     annotations:
       alb.ingress.kubernetes.io/healthcheck-path: /api/health
@@ -19,7 +27,17 @@ nodeExporter:
 prometheus:
   prometheusSpec:
     retention: 10d
+    retentionSize: 50GB
     scrapeInterval: 15s
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: gp3
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 100Gi
     additionalScrapeConfigs:
       - job_name: "node-to-node-latency"
         metrics_path: /probe
