@@ -22,12 +22,3 @@ variable "amp_endpoint" {
   type        = string
   description = "AMP remote write endpoint"
 }
-variable "adot_irsa_role" {
-  type        = string
-  description = "IAM role ARN for ADOT collector"
-}
-
-variable "amp_endpoint" {
-  type        = string
-  description = "AMP remote write endpoint"
-}
