@@ -49,3 +49,37 @@ resource "aws_iam_role_policy_attachment" "ebs_csi_driver_policy" {
   role       = aws_iam_role.ebs_csi_driver_role.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
 }
+
+# IAM Role for ADOT Collector (to write to AMP)
+resource "aws_iam_role" "adot_collector_role" {
+  name = "AmazonEKS_ADOT_CollectorRole"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Principal = {
+          Federated = module.eks.oidc_provider_arn
+        }
+        Action = "sts:AssumeRoleWithWebIdentity"
+        Condition = {
+          StringEquals = {
+            "${module.eks.oidc_provider}:sub" = "system:serviceaccount:observability:adot-collector"
+          }
+        }
+      }
+    ]
+  })
+
+  tags = {
+    Environment = "eks-study"
+    ManagedBy   = "terraform"
+  }
+}
+
+# Attach AMP write permissions to ADOT role
+resource "aws_iam_role_policy_attachment" "adot_amp_write" {
+  role       = aws_iam_role.adot_collector_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonPrometheusRemoteWriteAccess"
+}

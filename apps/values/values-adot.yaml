@@ -1,0 +1,153 @@
+# AWS Distro for OpenTelemetry Collector
+mode: "deployment"
+
+replicaCount: 2
+
+# Configure service account for IRSA
+serviceAccount:
+  create: true
+  annotations:
+    eks.amazonaws.com/role-arn: ${adot_irsa_role}
+  name: adot-collector
+
+# Configure AMP as remote write destination
+config:
+  extensions:
+    health_check:
+      endpoint: 0.0.0.0:13133
+    pprof:
+      endpoint: 0.0.0.0:1777
+    zpages:
+      endpoint: 0.0.0.0:55679
+
+  receivers:
+    # Kubernetes pod metrics
+    k8s_cluster:
+      collect_interval: 60s
+      node_condition_to_report:
+        - Ready
+        - MemoryPressure
+        - DiskPressure
+        - PIDPressure
+        - NetworkUnavailable
+      allocatable_types_to_report:
+        - cpu
+        - memory
+        - ephemeral-storage
+    # Prometheus receiver for scraping
+    prometheus/agent:
+      config:
+        scrape_configs:
+          # Scrape kube-state-metrics
+          - job_name: 'kube-state-metrics'
+            scrape_interval: 30s
+            kubernetes_sd_configs:
+              - role: pod
+            relabel_configs:
+              - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
+                regex: kube-state-metrics
+                action: keep
+              - source_labels: [__meta_kubernetes_pod_ip]
+                target_label: __address__
+                replacement: $1:8080
+          # Scrape node exporter
+          - job_name: 'node-exporter'
+            scrape_interval: 30s
+            kubernetes_sd_configs:
+              - role: pod
+            relabel_configs:
+              - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
+                regex: node-exporter
+                action: keep
+              - source_labels: [__meta_kubernetes_pod_ip]
+                target_label: __address__
+                replacement: $1:9100
+          # Scrape blackbox exporter
+          - job_name: 'blackbox-exporter'
+            scrape_interval: 30s
+            metrics_path: /metrics
+            kubernetes_sd_configs:
+              - role: pod
+            relabel_configs:
+              - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
+                regex: prometheus-blackbox-exporter
+                action: keep
+              - source_labels: [__meta_kubernetes_pod_ip]
+                target_label: __address__
+                replacement: $1:9115
+          # Scrape kubelet
+          - job_name: 'kubelet'
+            scheme: https
+            tls_config:
+              insecure_skip_verify: true
+            scrape_interval: 30s
+            kubernetes_sd_configs:
+              - role: node
+            relabel_configs:
+              - source_labels: [__address__]
+                regex: '(.*):10250'
+                replacement: '${1}:10255'
+                target_label: __address__
+              - action: labelmap
+                regex: __meta_kubernetes_node_label_(.+)
+                replacement: $1
+
+  exporters:
+    prometheusremotewrite:
+      endpoint: ${amp_endpoint}
+      tls:
+        insecure: true
+      retry_on_failure:
+        enabled: true
+      send_queue_size: 1000
+      target_info:
+        system: kubernetes
+
+  processors:
+    batch:
+      timeout: 30s
+      send_batch_size: 10000
+      send_batch_max_size: 20000
+
+  service:
+    extensions: [health_check, pprof, zpages]
+    pipelines:
+      metrics:
+        receivers: [prometheus/agent, k8s_cluster]
+        exporters: [prometheusremotewrite]
+        processors: [batch]
+
+# Resource limits
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 256Mi
+
+# Node selector
+nodeSelector:
+  kubernetes.io/os: linux
+
+# Tolerations
+tolerations:
+  - key: "CriticalAddonsOnly"
+    operator: "Exists"
+  - key: "node-role.kubernetes.io/master"
+    operator: "Exists"
+    effect: "NoSchedule"
+
+# Affinity to spread across nodes
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - adot-collector
+          topologyKey: kubernetes.io/hostname

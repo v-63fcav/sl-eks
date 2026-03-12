@@ -12,67 +12,37 @@ resource "helm_release" "alb_controller" {
   ]
 }
 
-# resource "helm_release" "prometheus_stack" {
-#   name       = "prometheus-stack"
-#   repository = "https://prometheus-community.github.io/helm-charts"
-#   chart      = "kube-prometheus-stack"
-#   version    = "47.6.1"
+# AWS Distro for OpenTelemetry Collector - Replaces Prometheus
+resource "helm_release" "adot_collector" {
+  name       = "adot-collector"
+  repository = "https://aws-observability.github.io/helm-charts"
+  chart      = "opentelemetry-collector"
+  version    = "0.50.0"
 
-#   namespace        = "prometheus-stack"
-#   create_namespace = true
-#   cleanup_on_fail  = true
+  namespace        = "observability"
+  create_namespace = true
+  cleanup_on_fail  = true
 
-#   values = [
-#     "${file("${path.module}/values/values-prometheus.yaml")}"
-#   ]
+  values = [
+    templatefile("${path.module}/values/values-adot.yaml", {
+      adot_irsa_role = aws_iam_role.adot_collector_role.arn
+      amp_endpoint   = aws_prometheus_workspace.main.prometheus_endpoint
+    })
+  ]
 
-#   depends_on = [
-#     kubernetes_storage_class_v1.gp3
-#   ]
-# }
+  depends_on = [aws_prometheus_workspace.main, aws_iam_role.adot_collector_role]
+}
 
-# resource "helm_release" "blackbox" {
-#   name       = "blackbox-exporter"
-#   namespace  = "monitoring"
-#   create_namespace = true
-#   repository = "https://prometheus-community.github.io/helm-charts"
-#   chart      = "prometheus-blackbox-exporter"
-#   version    = "8.8.0"
+# Blackbox Exporter - kept for ADOT integration
+resource "helm_release" "blackbox" {
+  name       = "blackbox-exporter"
+  namespace  = "observability"
+  create_namespace = false
+  repository = "https://prometheus-community.github.io/helm-charts"
+  chart      = "prometheus-blackbox-exporter"
+  version    = "8.8.0"
 
-#   values = [
-#     file("${path.module}/values/values-blackbox.yaml")
-#   ]
-# }
-
-# resource "helm_release" "metrics_server" {
-#   name       = "metrics-server"
-#   repository = "https://kubernetes-sigs.github.io/metrics-server"
-#   chart      = "metrics-server"
-#   version    = "3.12.2"
-
-#   namespace  = "kube-system"
-  
-#   values = [
-#     file("${path.module}/values/values-metrics-server.yaml")
-#   ]
-# }
-
-# # Sample application with gp3 volume mount
-# resource "helm_release" "sample_app" {
-#   name       = "sample-app"
-#   namespace  = "default"
-#   create_namespace = false
-
-#   chart = "${path.module}/sample-app-chart"
-  
-#   timeout = 600
-#   atomic  = true
-
-#   values = [
-#     file("${path.module}/sample-app-chart/values.yaml")
-#   ]
-
-#   depends_on = [
-#     kubernetes_storage_class_v1.gp3
-#   ]
-# }
+  values = [
+    file("${path.module}/values/values-blackbox.yaml")
+  ]
+}

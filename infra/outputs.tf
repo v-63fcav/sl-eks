@@ -34,3 +34,8 @@ output "alb_irsa_role" {
   value       = module.alb_irsa_role.iam_role_arn
 }
 
+output "adot_irsa_role" {
+  description = "IAM role ARN for ADOT collector"
+  value       = aws_iam_role.adot_collector_role.arn
+}
+
