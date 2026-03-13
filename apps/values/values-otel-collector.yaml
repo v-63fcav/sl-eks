@@ -1,0 +1,80 @@
+## OpenTelemetry Collector values for EKS
+## Chart: open-telemetry/opentelemetry-collector
+## Deployed as a Deployment (gateway mode) — receives OTLP from apps and fans out to backends.
+
+mode: deployment
+
+replicaCount: 1
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    memory: 256Mi
+
+config:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: "0.0.0.0:4317"
+        http:
+          endpoint: "0.0.0.0:4318"
+
+  processors:
+    batch:
+      timeout: 5s
+      send_batch_size: 1000
+    memory_limiter:
+      check_interval: 1s
+      limit_percentage: 75
+      spike_limit_percentage: 20
+
+  exporters:
+    # Metrics → Prometheus (remote write)
+    prometheusremotewrite:
+      endpoint: "http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090/api/v1/write"
+      tls:
+        insecure: true
+
+    # Traces → Tempo
+    otlp/tempo:
+      endpoint: "tempo.monitoring.svc.cluster.local:4317"
+      tls:
+        insecure: true
+
+    # Logs → Loki
+    loki:
+      endpoint: "http://loki.monitoring.svc.cluster.local:3100/loki/api/v1/push"
+
+  service:
+    pipelines:
+      metrics:
+        receivers: [otlp]
+        processors: [memory_limiter, batch]
+        exporters: [prometheusremotewrite]
+      traces:
+        receivers: [otlp]
+        processors: [memory_limiter, batch]
+        exporters: [otlp/tempo]
+      logs:
+        receivers: [otlp]
+        processors: [memory_limiter, batch]
+        exporters: [loki]
+
+# Expose OTLP ports so apps can reach the collector
+ports:
+  otlp:
+    enabled: true
+    containerPort: 4317
+    servicePort: 4317
+    protocol: TCP
+  otlp-http:
+    enabled: true
+    containerPort: 4318
+    servicePort: 4318
+    protocol: TCP
+
+serviceMonitor:
+  enabled: true

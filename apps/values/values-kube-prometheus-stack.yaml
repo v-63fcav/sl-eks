@@ -59,6 +59,24 @@ grafana:
   defaultDashboardsEnabled: true
   defaultDashboardsTimezone: utc
 
+  # Additional datasources for the OTEL stack
+  additionalDataSources:
+    - name: Loki
+      type: loki
+      url: http://loki.monitoring.svc.cluster.local:3100
+      access: proxy
+      isDefault: false
+    - name: Tempo
+      type: tempo
+      url: http://tempo.monitoring.svc.cluster.local:3100
+      access: proxy
+      isDefault: false
+      jsonData:
+        tracesToLogsV2:
+          datasourceUid: loki
+        lokiSearch:
+          datasourceUid: loki
+
   service:
     type: ClusterIP
 
