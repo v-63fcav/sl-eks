@@ -52,6 +52,14 @@ resource "helm_release" "tempo" {
   depends_on = [kubernetes_storage_class_v1.gp3, helm_release.kube_prometheus_stack]
 }
 
+resource "helm_release" "sample_app" {
+  name      = "sample-app"
+  chart     = "${path.module}/sample-app-chart"
+  namespace = "default"
+
+  depends_on = [kubernetes_storage_class_v1.gp3]
+}
+
 resource "helm_release" "opentelemetry_collector" {
   name       = "opentelemetry-collector"
   repository = "https://open-telemetry.github.io/opentelemetry-helm-charts"
