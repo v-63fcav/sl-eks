@@ -2,6 +2,9 @@
 ## Chart: open-telemetry/opentelemetry-collector
 ## Deployed as a Deployment (gateway mode) — receives OTLP from apps and fans out to backends.
 
+image:
+  repository: otel/opentelemetry-collector-contrib
+
 mode: deployment
 
 replicaCount: 1
