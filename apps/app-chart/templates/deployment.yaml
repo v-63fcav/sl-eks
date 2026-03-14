@@ -16,8 +16,8 @@ spec:
         {{- toYaml . | nindent 8 }}
         {{- end }}
         {{- if .Values.otel.inject }}
-        # Triggers the OTel Operator mutating webhook to inject the Node.js SDK
-        instrumentation.opentelemetry.io/inject-nodejs: "true"
+        # References the namespace-wide Instrumentation CR deployed by otel-platform-chart
+        instrumentation.opentelemetry.io/inject-nodejs: {{ .Values.otel.instrumentationRef | quote }}
         {{- end }}
       labels:
         {{- include "app.selectorLabels" . | nindent 8 }}
@@ -37,6 +37,9 @@ spec:
               res.writeHead(200, { 'Content-Type': 'application/json' });
               res.end(JSON.stringify({ status: 'ok', path: req.url, ts: new Date().toISOString() }));
             }).listen(3000, () => console.log('listening on :3000'));
+        env:
+        - name: OTEL_SERVICE_NAME
+          value: {{ .Values.otel.serviceName | quote }}
         ports:
         - name: http
           containerPort: 3000

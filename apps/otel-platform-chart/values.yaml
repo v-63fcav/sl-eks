@@ -1,0 +1,1 @@
+collectorEndpoint: "http://opentelemetry-collector.monitoring:4318"

@@ -1,3 +1,9 @@
+# =============================================================================
+# INGRESS
+# =============================================================================
+# AWS Load Balancer Controller — watches Ingress resources and provisions
+# internet-facing ALBs via the AWS API using IRSA credentials.
+
 resource "helm_release" "alb_controller" {
   name       = "aws-load-balancer-controller"
   repository = "https://aws.github.io/eks-charts"
@@ -11,6 +17,12 @@ resource "helm_release" "alb_controller" {
     })
   ]
 }
+
+# =============================================================================
+# OBSERVABILITY — METRICS & LOGS
+# =============================================================================
+# kube-prometheus-stack bundles Prometheus, Alertmanager, and Grafana.
+# Loki stores logs. Promtail ships pod logs to Loki from every node.
 
 resource "helm_release" "kube_prometheus_stack" {
   name             = "kube-prometheus-stack"
@@ -40,18 +52,6 @@ resource "helm_release" "loki" {
   depends_on = [kubernetes_storage_class_v1.gp3, helm_release.kube_prometheus_stack]
 }
 
-resource "helm_release" "tempo" {
-  name       = "tempo"
-  repository = "https://grafana.github.io/helm-charts"
-  chart      = "tempo"
-  version    = "1.14.0"
-  namespace  = "monitoring"
-
-  values = [file("${path.module}/values/values-tempo.yaml")]
-
-  depends_on = [kubernetes_storage_class_v1.gp3, helm_release.kube_prometheus_stack]
-}
-
 resource "helm_release" "promtail" {
   name       = "promtail"
   repository = "https://grafana.github.io/helm-charts"
@@ -66,6 +66,25 @@ resource "helm_release" "promtail" {
   ]
 
   depends_on = [helm_release.loki]
+}
+
+# =============================================================================
+# OBSERVABILITY — TRACING
+# =============================================================================
+# Tempo stores traces. The OTel Collector receives spans from all apps,
+# translates protocols, and forwards to Tempo. The OTel Operator enables
+# zero-code auto-instrumentation via pod annotation injection.
+
+resource "helm_release" "tempo" {
+  name       = "tempo"
+  repository = "https://grafana.github.io/helm-charts"
+  chart      = "tempo"
+  version    = "1.14.0"
+  namespace  = "monitoring"
+
+  values = [file("${path.module}/values/values-tempo.yaml")]
+
+  depends_on = [kubernetes_storage_class_v1.gp3, helm_release.kube_prometheus_stack]
 }
 
 resource "helm_release" "opentelemetry_collector" {
@@ -92,11 +111,27 @@ resource "helm_release" "otel_operator" {
   depends_on = [helm_release.opentelemetry_collector]
 }
 
-# The operator registers its CRDs asynchronously after the Helm release completes.
-# Wait for the webhook and CRDs to be fully ready before applying the Instrumentation CR.
+# The operator registers its CRDs and webhook asynchronously after the Helm
+# release is marked complete. This sleep ensures the Instrumentation CRD is
+# fully available before otel-platform tries to create a CR against it.
 resource "time_sleep" "otel_operator_ready" {
   create_duration = "30s"
   depends_on      = [helm_release.otel_operator]
+}
+
+# =============================================================================
+# APPLICATIONS
+# =============================================================================
+# otel-platform provisions namespace-wide Instrumentation CRs shared by all
+# apps in the default namespace. Apps must deploy after the platform so the
+# CR exists when their pods are scheduled and the webhook fires.
+
+resource "helm_release" "otel_platform" {
+  name      = "otel-platform"
+  chart     = "${path.module}/otel-platform-chart"
+  namespace = "default"
+
+  depends_on = [time_sleep.otel_operator_ready]
 }
 
 resource "helm_release" "node_ws" {
@@ -104,7 +139,7 @@ resource "helm_release" "node_ws" {
   chart     = "${path.module}/app-chart"
   namespace = "default"
 
-  depends_on = [time_sleep.otel_operator_ready]
+  depends_on = [helm_release.otel_platform]
 }
 
 resource "helm_release" "otel_test_app" {

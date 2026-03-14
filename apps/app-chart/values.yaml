@@ -37,7 +37,7 @@ persistence:
   mountPath: /data
 
 otel:
-  # Tells the OTel Operator to inject the Node.js SDK into this pod at startup
   inject: true
   serviceName: node-ws
-  collectorEndpoint: "http://opentelemetry-collector.monitoring:4318"
+  # Name of the Instrumentation CR in this namespace (deployed by otel-platform-chart)
+  instrumentationRef: nodejs

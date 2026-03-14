@@ -1,0 +1,25 @@
+# Namespace-wide Instrumentation CR for Node.js apps.
+# All apps in this namespace reference this CR via:
+#   instrumentation.opentelemetry.io/inject-nodejs: "nodejs"
+# Each app sets OTEL_SERVICE_NAME as a pod env var — it is intentionally
+# omitted here so one CR serves all services without modification.
+apiVersion: opentelemetry.io/v1alpha1
+kind: Instrumentation
+metadata:
+  name: nodejs
+  namespace: {{ .Release.Namespace }}
+spec:
+  exporter:
+    endpoint: {{ .Values.collectorEndpoint }}
+  propagators:
+    - tracecontext
+    - baggage
+  sampler:
+    type: parentbased_traceidratio
+    argument: "1"
+  nodejs:
+    env:
+      - name: OTEL_EXPORTER_OTLP_ENDPOINT
+        value: {{ .Values.collectorEndpoint }}
+      - name: OTEL_EXPORTER_OTLP_PROTOCOL
+        value: http/protobuf
