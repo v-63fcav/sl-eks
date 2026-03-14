@@ -92,13 +92,19 @@ resource "helm_release" "otel_operator" {
   depends_on = [helm_release.opentelemetry_collector]
 }
 
+# The operator registers its CRDs asynchronously after the Helm release completes.
+# Wait for the webhook and CRDs to be fully ready before applying the Instrumentation CR.
+resource "time_sleep" "otel_operator_ready" {
+  create_duration = "30s"
+  depends_on      = [helm_release.otel_operator]
+}
+
 resource "helm_release" "node_ws" {
   name      = "node-ws"
   chart     = "${path.module}/app-chart"
   namespace = "default"
 
-  # Operator must be up so the Instrumentation CRD exists before the chart applies it
-  depends_on = [helm_release.otel_operator]
+  depends_on = [time_sleep.otel_operator_ready]
 }
 
 resource "helm_release" "otel_test_app" {
