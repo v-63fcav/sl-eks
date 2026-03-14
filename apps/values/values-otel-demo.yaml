@@ -32,7 +32,7 @@ opentelemetry-collector:
 
 # ── Expose the frontend via the AWS ALB Controller ────────────────────────────
 components:
-  frontendProxy:
+  frontend-proxy:
     ingress:
       enabled: true
       ingressClassName: alb
