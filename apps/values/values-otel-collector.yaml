@@ -24,6 +24,8 @@ config:
           endpoint: "0.0.0.0:4317"
         http:
           endpoint: "0.0.0.0:4318"
+    zipkin:
+      endpoint: "0.0.0.0:9411"
 
   processors:
     batch:
@@ -58,7 +60,7 @@ config:
         processors: [memory_limiter, batch]
         exporters: [prometheusremotewrite]
       traces:
-        receivers: [otlp]
+        receivers: [otlp, zipkin]
         processors: [memory_limiter, batch]
         exporters: [otlp/tempo]
       logs:
@@ -77,6 +79,11 @@ ports:
     enabled: true
     containerPort: 4318
     servicePort: 4318
+    protocol: TCP
+  zipkin:
+    enabled: true
+    containerPort: 9411
+    servicePort: 9411
     protocol: TCP
 
 serviceMonitor:

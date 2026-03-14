@@ -25,12 +25,8 @@ spec:
         env:
         - name: NAME
           value: {{ .Values.otel.serviceName | quote }}
-        - name: OTEL_EXPORTER_OTLP_ENDPOINT
-          value: {{ .Values.otel.collectorEndpoint | quote }}
-        - name: OTEL_SERVICE_NAME
-          value: {{ .Values.otel.serviceName | quote }}
-        - name: OTEL_TRACES_EXPORTER
-          value: otlp
+        - name: TRACING_ZIPKIN
+          value: {{ .Values.otel.zipkinEndpoint | quote }}
         livenessProbe:
           httpGet:
             path: /health
