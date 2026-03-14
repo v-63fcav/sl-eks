@@ -1,0 +1,31 @@
+{{- if .Values.otel.inject }}
+# The Instrumentation CR is read by the OTel Operator when it sees the
+# inject-nodejs annotation on the pod. It tells the operator:
+#   - which OTel Collector to send traces to
+#   - which propagation format to use (W3C TraceContext)
+#   - the sampling strategy
+apiVersion: opentelemetry.io/v1alpha1
+kind: Instrumentation
+metadata:
+  name: {{ include "app.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "app.labels" . | nindent 4 }}
+spec:
+  exporter:
+    endpoint: {{ .Values.otel.collectorEndpoint }}
+  propagators:
+    - tracecontext
+    - baggage
+  sampler:
+    type: parentbased_traceidratio
+    argument: "1"   # sample 100% of traces
+  nodejs:
+    env:
+      - name: OTEL_EXPORTER_OTLP_ENDPOINT
+        value: {{ .Values.otel.collectorEndpoint }}
+      - name: OTEL_EXPORTER_OTLP_PROTOCOL
+        value: http/protobuf
+      - name: OTEL_SERVICE_NAME
+        value: {{ .Values.otel.serviceName }}
+{{- end }}

@@ -80,12 +80,25 @@ resource "helm_release" "opentelemetry_collector" {
   depends_on = [helm_release.loki, helm_release.tempo, helm_release.kube_prometheus_stack]
 }
 
-resource "helm_release" "sample_app" {
-  name      = "sample-app"
-  chart     = "${path.module}/sample-app-chart"
+resource "helm_release" "otel_operator" {
+  name             = "opentelemetry-operator"
+  repository       = "https://open-telemetry.github.io/opentelemetry-helm-charts"
+  chart            = "opentelemetry-operator"
+  namespace        = "opentelemetry-operator-system"
+  create_namespace = true
+
+  values = [file("${path.module}/values/values-otel-operator.yaml")]
+
+  depends_on = [helm_release.opentelemetry_collector]
+}
+
+resource "helm_release" "node_ws" {
+  name      = "node-ws"
+  chart     = "${path.module}/app-chart"
   namespace = "default"
 
-  depends_on = [kubernetes_storage_class_v1.gp3]
+  # Operator must be up so the Instrumentation CRD exists before the chart applies it
+  depends_on = [helm_release.otel_operator]
 }
 
 resource "helm_release" "otel_test_app" {

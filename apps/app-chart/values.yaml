@@ -1,0 +1,30 @@
+replicaCount: 1
+
+image:
+  repository: node
+  pullPolicy: IfNotPresent
+  tag: "20-alpine"
+
+nameOverride: "node-ws"
+fullnameOverride: ""
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+persistence:
+  enabled: false
+  storageClass: gp3
+  size: 5Gi
+  accessMode: ReadWriteOnce
+  mountPath: /data
+
+otel:
+  # Tells the OTel Operator to inject the Node.js SDK into this pod at startup
+  inject: true
+  serviceName: node-ws
+  collectorEndpoint: "http://opentelemetry-collector.monitoring:4318"

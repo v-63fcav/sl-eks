@@ -83,7 +83,7 @@ Loki is a passive backend — it only stores logs that are pushed to it. Log col
 **How to use:**
 1. Open Grafana → Explore → select the **Loki** datasource.
 2. Filter by namespace: `{namespace="default"}`
-3. Filter by pod: `{pod=~"sample-app.*"}`
+3. Filter by pod: `{pod=~"node-ws.*"}`
 4. Combine with a text search: `{namespace="monitoring"} |= "error"`
 
 > For production, switch `deploymentMode` to `SimpleScalable` or `Distributed` and use S3 for object storage.
@@ -164,17 +164,17 @@ Point your OTel SDK exporter at either endpoint. The collector handles routing t
 
 ---
 
-### sample-app
+### node-ws
 
 | | |
 |---|---|
-| Chart | local `./sample-app-chart` |
+| Chart | local `./app-chart` |
 | Namespace | `default` |
-| Values | [sample-app-chart/values.yaml](sample-app-chart/values.yaml) |
+| Values | [app-chart/values.yaml](app-chart/values.yaml) |
 
-A minimal nginx (`1.25-alpine`) deployment used to validate the cluster and storage stack. Ships with:
+A minimal Node.js (`20-alpine`) web server auto-instrumented by the OTel Operator. Ships with:
 
-- 1 replica, HTTP on port 80
+- 1 replica, HTTP on port 3000
 - A 5 GiB gp3 `PersistentVolumeClaim` mounted at `/data`
 - Resource requests: 250m CPU / 256Mi memory; limits: 500m CPU / 512Mi memory
 

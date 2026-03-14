@@ -1,0 +1,13 @@
+## OpenTelemetry Operator values
+## Chart: open-telemetry/opentelemetry-operator
+
+# No cert-manager in this cluster — operator generates its own webhook certificate
+admissionWebhooks:
+  certManager:
+    enabled: false
+  autoGenerateCert:
+    enabled: true
+
+# The operator watches all namespaces by default; no extra config needed.
+# Language-specific auto-instrumentation (nodejs, python, java, go, dotnet)
+# is all enabled by default.

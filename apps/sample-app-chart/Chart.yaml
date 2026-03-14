@@ -1,6 +1,0 @@
-apiVersion: v2
-name: sample-app
-description: A simple sample application with gp3 volume mount
-type: application
-version: 0.1.0
-appVersion: "1.0"
