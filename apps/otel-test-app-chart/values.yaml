@@ -20,8 +20,8 @@ ingress:
 
 otel:
   serviceName: otel-test-app
-  # Points to the existing OTel Collector gateway in the monitoring namespace
-  collectorEndpoint: "http://opentelemetry-collector.monitoring:4318"
+  # fake-service speaks Zipkin; the OTel Collector receives it and forwards to Tempo
+  zipkinEndpoint: "http://opentelemetry-collector.monitoring:9411/api/v2/spans"
 
 resources:
   requests:
