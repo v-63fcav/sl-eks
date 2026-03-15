@@ -328,7 +328,7 @@ Pod inicia com SDK pré-carregado
 próprio certificado de webhook autoassinado via `autoGenerateCert`.
 
 **Temporização:** O operator registra seus CRDs e webhook de forma assíncrona após o
-Helm release completar. Um `time_sleep` de 30 segundos no Terraform garante que o CRD
+Helm release ser concluído. Uma espera de 30 segundos no Terraform (`time_sleep`) garante que o CRD
 esteja disponível antes que o `otel-platform-chart` tente criar um CR `Instrumentation` contra ele.
 
 ---

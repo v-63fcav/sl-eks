@@ -130,7 +130,7 @@ O ingress libera todo o tráfego dos três ranges RFC privados — isso cobre tr
 
 | Atributo | Valor |
 |---|---|
-| Versão Kubernetes | 1.32 |
+| Versão Kubernetes | 1.34 |
 | Região | `us-east-2` |
 | Acesso ao control plane | Endpoints público + privado |
 | IRSA | Habilitado (`enable_irsa = true`) |
@@ -141,7 +141,7 @@ O ingress libera todo o tráfego dos três ranges RFC privados — isso cobre tr
 | Atributo | Valor |
 |---|---|
 | Tipo de instância | `t3.medium` (2 vCPU, 4 GiB RAM) |
-| AMI | `AL2_x86_64` (Amazon Linux 2) |
+| AMI | `AL2023_x86_64_STANDARD` (Amazon Linux 2023) |
 | Min / Desejado / Máx | 2 / 2 / 6 |
 | Escalonamento | Manual — nenhum cluster autoscaler configurado |
 

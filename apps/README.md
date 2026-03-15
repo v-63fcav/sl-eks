@@ -91,7 +91,7 @@ O Loki é um backend passivo — ele apenas armazena logs que são enviados para
 3. Filtre por pod: `{pod=~"node-ws.*"}` ou `{pod=~"otel-test-app.*"}`
 4. Combine com busca por texto: `{namespace="monitoring"} |= "error"`
 
-> Para produção, mude `deploymentMode` para `SimpleScalable` ou `Distributed` e use S3 para object storage.
+> Para produção, mude `deploymentMode` para `SimpleScalable` ou `Distributed` e use S3 como armazenamento de objetos.
 
 ---
 
@@ -101,7 +101,7 @@ O Loki é um backend passivo — ele apenas armazena logs que são enviados para
 |---|---|
 | Chart | `grafana/promtail` (latest) |
 | Namespace | `monitoring` |
-| Values | inline `set` em [helm.tf](helm.tf) |
+| Values | definidos via `set` inline em [helm.tf](helm.tf) |
 
 DaemonSet que roda em cada node e monitora todos os logs de contêiner em `/var/log/pods/`. Anexa automaticamente labels de metadados Kubernetes (`namespace`, `pod`, `container`, `node`, `app`) como labels de stream do Loki, tornando os logs de cada pod consultáveis no Grafana sem nenhuma configuração por aplicação.
 

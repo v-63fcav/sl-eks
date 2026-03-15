@@ -1,10 +1,13 @@
 # ps-sl - Plataforma de Observabilidade Kubernetes
 
-[![Terraform](https://img.shields.io/badge/Terraform-1.0+-623CE4?style=for-the-badge&logo=terraform)](https://www.terraform.io/)
-[![Kubernetes](https://img.shields.io/badge/Kubernetes-EKS-326CE5?style=for-the-badge&logo=kubernetes)](https://kubernetes.io/)
-[![AWS](https://img.shields.io/badge/AWS-232F3E?style=for-the-badge&logo=amazon-aws)](https://aws.amazon.com/)
-[![GitHub Actions](https://img.shields.io/badge/GitHub_Actions-2088FF?style=for-the-badge&logo=github-actions)](https://github.com/features/actions)
-[![Helm](https://img.shields.io/badge/Helm-3.0+-0F1689?style=for-the-badge&logo=helm)](https://helm.sh/)
+[![Terraform](https://img.shields.io/badge/Terraform-1.9+-623CE4?style=for-the-badge&logo=terraform&logoColor=white)](https://www.terraform.io/)
+[![Kubernetes](https://img.shields.io/badge/Kubernetes-1.34-326CE5?style=for-the-badge&logo=kubernetes&logoColor=white)](https://kubernetes.io/)
+[![AWS EKS](https://img.shields.io/badge/AWS%20EKS-FF9900?style=for-the-badge&logo=amazon-aws&logoColor=white)](https://aws.amazon.com/eks/)
+[![Helm](https://img.shields.io/badge/Helm-3.x-0F1689?style=for-the-badge&logo=helm&logoColor=white)](https://helm.sh/)
+[![Prometheus](https://img.shields.io/badge/Prometheus-E6522C?style=for-the-badge&logo=prometheus&logoColor=white)](https://prometheus.io/)
+[![Grafana](https://img.shields.io/badge/Grafana-F46800?style=for-the-badge&logo=grafana&logoColor=white)](https://grafana.com/)
+[![OpenTelemetry](https://img.shields.io/badge/OpenTelemetry-425CC7?style=for-the-badge&logo=opentelemetry&logoColor=white)](https://opentelemetry.io/)
+[![GitHub Actions](https://img.shields.io/badge/GitHub%20Actions-2088FF?style=for-the-badge&logo=github-actions&logoColor=white)](https://github.com/features/actions)
 
 ---
 
@@ -36,7 +39,7 @@ Este projeto implementa uma plataforma completa de observabilidade Kubernetes na
 - **Alta Disponibilidade**: Cluster EKS multi-AZ com node groups distribuídos
 - **Observabilidade Completa**: Stack integrado de métricas (Prometheus), logs (Loki + Promtail) e traces (Tempo)
 - **Tracing Distribuído**: Dois padrões de instrumentação — Zipkin via OTel Collector e auto-instrumentação zero-code via OTel Operator
-- **CI/CD**: GitHub Actions para deployments automatizados
+- **CI/CD**: GitHub Actions para implantações automatizadas
 - **Ingress**: AWS Application Load Balancer Controller para gerenciamento de tráfego
 - **Segurança**: Topologia de rede isolada com subnets privadas para workloads
 
@@ -63,8 +66,8 @@ Este projeto implementa uma plataforma completa de observabilidade Kubernetes na
 │  │                                                                             │  │
 │  │  ┌─────────────────────────────────────────────────────┐                   │  │
 │  │  │              Pod Band (Custom Networking)           │                   │  │
-│  │  │              10.0.16.0/19  AZ-a  (~8k IPs)          │                   │  │
-│  │  │              10.0.48.0/19  AZ-b  (~8k IPs)          │                   │  │
+│  │  │              10.0.32.0/19  AZ-a  (~8k IPs)          │                   │  │
+│  │  │              10.0.64.0/19  AZ-b  (~8k IPs)          │                   │  │
 │  │  └─────────────────────────────────────────────────────┘                   │  │
 │  │                                                                             │  │
 │  │  ┌─────────────────────────────────────────────────────────────────────┐   │  │
@@ -328,7 +331,7 @@ O projeto utiliza GitHub Actions para CI/CD. Certifique-se de que os seguintes s
 - `AWS_SECRET_ACCESS_KEY`
 - `TF_API_TOKEN` (se usando Terraform Cloud/Enterprise)
 
-O workflow irá:
+O pipeline irá:
 1. Validar a configuração Terraform
 2. Executar verificações de segurança
 3. Aplicar mudanças na infraestrutura
@@ -346,7 +349,7 @@ kubectl get ingress -n monitoring
 ```
 
 - **Usuário**: `admin`
-- **Senha**: `changeme` (definida em `values-kube-prometheus-stack.yaml` — altere antes de ir para produção)
+- **Senha**: `changeme` (definida em `values-kube-prometheus-stack.yaml` — altere antes de ir a produção)
 - Datasources pré-configurados: **Prometheus**, **Loki**, **Tempo** (com correlação trace→log)
 
 > ⚠️ **Nota de Segurança**: Altere as credenciais padrão imediatamente após o primeiro deploy. Use AWS Secrets Manager ou secrets do Kubernetes para deployments em produção.
@@ -499,47 +502,120 @@ terraform apply
 
 ## 🗺️ Roadmap
 
-### Melhorias Planejadas
+Este roadmap mapeia o estado atual do cluster em relação ao padrão de referência para clusters EKS enterprise-grade, baseado no [AWS EKS Best Practices Guide](https://aws.github.io/aws-eks-best-practices/) e nas recomendações de segurança AWS/CIS.
 
-- [ ] **Documentação Completa**
-  - Runbooks para tarefas operacionais comuns
-  - Procedimentos de recuperação de desastres
-  - Guias de otimização de custos
+---
 
-- [ ] **Otimização do GitHub Actions**
-  - Leitura direta do state em vez de mecanismos de output/export
-  - Melhoria no tratamento de erros e procedimentos de rollback
-  - Integração com workflows de pull request
+### ✅ Concluído
 
-- [ ] **Implementação de SSL/TLS**
-  - Integração com AWS Certificate Manager
-  - Renovação automática de certificados
-  - Execução obrigatória de HTTPS para todos os endpoints
-  - Suporte a domínios personalizados
+#### Rede
+- [x] **VPC em bandas de endereços** — separação node/público/pod com slots sequenciais para expansão por AZ
+- [x] **Custom Networking (VPC CNI)** — pods recebem IPs da banda de pods (`intra_subnets`); nodes consomem apenas 1 IP cada
+- [x] **NAT Gateway por AZ** — elimina ponto único de falha e cobranças inter-AZ (`one_nat_gateway_per_az = true`)
+- [x] **VPC Endpoints** — S3 (Gateway, gratuito), ECR API, ECR DKR, STS; pulls de imagem e tokens IRSA não passam pelo NAT GW
+- [x] **VPC Flow Logs** — captura todo tráfego (`ALL`) no CloudWatch Logs com retenção de 30 dias
+- [x] **ENIConfig CRDs** — mapeamento AZ → subnet de pods gerenciado automaticamente pela camada `apps/`
 
-- [x] **Armazenamento Persistente**
-  - ~~Criação de PV/PVC para persistência de dados do Prometheus~~ ✅ Implementado (gp3, todos os componentes)
-  - ~~Provisionamento de volumes EBS com IOPS apropriados~~ ✅ gp3 com EBS CSI Driver
-  - Procedimentos de backup e restore
+#### Computação e Identidade
+- [x] **Cluster EKS gerenciado** com endpoints público e privado habilitados
+- [x] **Node Group gerenciado** — `AL2023_x86_64_STANDARD`, escala de 2 a 6 nodes nas subnets privadas
+- [x] **IRSA para todos os componentes AWS** — EBS CSI Driver e ALB Controller sem credenciais estáticas
+- [x] **EKS Access Entries** — acesso admin via API moderna (sem edição manual do `aws-auth` ConfigMap)
+- [x] **Addon EBS CSI Driver** — provisionamento dinâmico de volumes EBS com IRSA
+- [x] **StorageClass `gp3`** — criptografada, política `Retain`, bind `WaitForFirstConsumer`
 
-- [ ] **Implementação de GitOps**
-  - Substituir deployments Helm baseados em Terraform por ArgoCD/Flux
-  - Gerenciamento declarativo de aplicações
-  - Sincronização automática com repositório Git
-  - Integração de rollback e controle de versão
+#### Observabilidade
+- [x] **Métricas** — kube-prometheus-stack (Prometheus + Grafana + Alertmanager)
+- [x] **Logs** — Loki + Promtail DaemonSet
+- [x] **Traces** — Tempo + OTel Collector (OTLP gRPC/HTTP + Zipkin)
+- [x] **Auto-instrumentação zero-code** — OTel Operator com SDK injection (Node.js)
+- [x] **Correlação trace→log** — Grafana com datasources pré-configurados
 
-- [x] **Capacidades de Monitoramento Adicionais**
-  - ~~Monitoramento de Performance de Aplicação (APM)~~ ✅ OTel Collector + Tempo
-  - ~~Integração de tracing distribuído~~ ✅ Tempo com correlação trace→log
-  - ~~Coleta de métricas personalizadas~~ ✅ via OTLP para Prometheus
-  - ~~Auto-instrumentação zero-code~~ ✅ OTel Operator com SDK injection (Node.js)
-  - Alertas avançados com integração PagerDuty/Slack
+#### Ingress e Tráfego
+- [x] **AWS Load Balancer Controller** via IRSA
+- [x] **Terraform em duas camadas** (`infra/` → `apps/`) com remote state entre camadas
 
-- [x] **Melhorias de Segurança**
-  - ~~IRSA (IAM Roles for Service Accounts)~~ ✅ Implementado
-  - Implementação de Pod Security Standards
-  - Aplicação de políticas de rede
-  - Criptografia de secrets em repouso
+---
+
+### 🔴 P0 — Obrigatório Antes de Produção
+
+Itens que falhariam numa auditoria de segurança ou representam risco operacional imediato.
+
+#### Segurança — Controle Plane
+- [ ] **Logs do control plane EKS** — habilitar `cluster_enabled_log_types = ["api", "audit", "authenticator", "controllerManager", "scheduler"]` no cluster; sem isso, não há rastreabilidade de quem fez o quê no cluster
+- [ ] **Criptografia de Secrets em repouso (KMS)** — configurar `cluster_encryption_config` com uma CMK do KMS; atualmente os Kubernetes Secrets são armazenados sem criptografia no etcd
+- [ ] **Restrição do endpoint público da API** — `cluster_endpoint_public_access_cidrs` está em `0.0.0.0/0` por padrão; limitar aos CIDRs de VPN/escritório ou migrar para endpoint privado
+
+#### Segurança — Rede e Pods
+- [ ] **Network Policies** — sem políticas de rede, qualquer pod comprometido pode alcançar qualquer outro pod, incluindo `kube-system`; implementar deny-all + allows explícitos por namespace
+- [ ] **Pod Security Standards** — habilitar Pod Security Admission com perfil `Baseline` (mínimo) ou `Restricted`; impede containers privilegiados, `hostNetwork`, `hostPID`, mount de paths do host
+- [ ] **Restrição do Security Group dos nodes** — [`sg.tf`](infra/sg.tf) abre **todas as portas** de `10.0.0.0/8`; limitar ao CIDR da VPC e apenas às portas necessárias (443, kubelet, etc.)
+
+#### Confiabilidade
+- [ ] **Cluster Autoscaler ou Karpenter** — o node group é estático (2–6, manual); sem autoscaler, o cluster não reage a picos de carga nem reduz custo em baixa utilização
+- [ ] **3 Availability Zones** — atualmente 2 AZs; uma falha de AZ degrada capacidade em 50% e pode violar SLA; expandir para 3 AZs nos três bancos de subnets
+- [ ] **TLS / cert-manager** — ALBs expostos sem HTTPS; integrar cert-manager com ACM ou Let's Encrypt para renovação automática de certificados
+
+---
+
+### 🟠 P1 — Primeiro Sprint Pós-Launch
+
+Itens que não bloqueiam o go-live mas devem ser resolvidos nas primeiras semanas.
+
+#### Segurança
+- [ ] **External Secrets Operator** — integrar com AWS Secrets Manager ou SSM Parameter Store; atualmente segredos de aplicação vivem como Kubernetes Secrets em base64 sem rotação automática
+- [ ] **Detecção de ameaças em runtime** — habilitar Amazon GuardDuty for EKS Runtime Monitoring ou implantar Falco; detecta escapes de container, execução de processos suspeitos, cryptomining
+- [ ] **Scanning de imagens** — habilitar ECR Enhanced Scanning (Amazon Inspector) e bloquear imagens com CVEs críticos no pipeline de CI
+- [ ] **Remover conta root dos admins do cluster** — `eks_admin_principal_arns` inclui o root da conta AWS; substituir por roles IAM com MFA; root nunca deve ser usado para workloads
+
+#### Confiabilidade e Disponibilidade
+- [ ] **PodDisruptionBudgets** — sem PDBs, um drain de node durante upgrade pode derrubar todos os pods de um serviço simultaneamente
+- [ ] **Topology Spread Constraints** — pods do mesmo Deployment podem ser agendados no mesmo node/AZ; configurar spread por AZ e por node
+- [ ] **Instances compute-optimized** — `t3.medium` é instância *burstable*; sob carga sustentada os créditos de CPU esgotam e a instância throttles; migrar para `m6i.large` ou `m7i.large` para workloads de produção
+- [ ] **Probes de liveness/readiness** — padronizar probes em todos os workloads de aplicação; sem elas o Kubernetes não detecta pods travados
+
+#### Observabilidade
+- [ ] **Regras de alerting no Alertmanager** — Prometheus está instalado mas sem `PrometheusRule` ou `AlertmanagerConfig`; sem alertas, incidentes só são detectados manualmente
+- [ ] **Integração PagerDuty/Slack** — configurar notificações para node not-ready, pod crash-looping, PVC cheio, deployment sem replicas disponíveis
+- [ ] **Métricas do control plane** — API server, scheduler e controller-manager não estão sendo coletados; anomalias no cluster passam despercebidas
+
+#### Custo
+- [ ] **Spot instances para workloads tolerantes a falha** — observabilidade (Prometheus, Loki, Tempo) e apps stateless podem rodar em Spot com economia de 60–80%; configurar node group misto On-Demand + Spot
+- [ ] **Loki com backend S3** — atualmente Loki usa EBS local; dados de log não sobrevivem à recriação do cluster; migrar para modo `SimpleScalable` com S3 como object store
+
+---
+
+### 🟡 P2 — Maturidade Operacional
+
+Itens para clusters estabelecidos em produção que buscam maturidade enterprise.
+
+#### Governança e Compliance
+- [ ] **Engine de políticas (Kyverno ou OPA Gatekeeper)** — enforcement de políticas organizacionais: allowlist de registry de imagens, proibição de tag `latest`, labels obrigatórias, `securityContext` mínimo
+- [ ] **RBAC por equipe** — atualmente só existe `cluster-admin`; definir Roles/ClusterRoles por função (dev, ops, read-only) com bindings por namespace
+- [ ] **Cotas de recursos por namespace** — sem `ResourceQuota` e `LimitRange`, uma equipe pode esgotar CPU/memória do cluster inteiro
+- [ ] **Integração SSO (IAM Identity Center / OIDC)** — substituir ARNs de usuários IAM individuais por roles federadas via Identity Provider corporativo (Okta, Azure AD)
+- [ ] **CIS Benchmark e hardeneks** — executar `hardeneks` e Kubescape regularmente para medir aderência ao CIS EKS Benchmark
+
+#### GitOps e CI/CD
+- [ ] **GitOps (ArgoCD ou Flux)** — substituir `terraform apply` manual dos Helm releases por sincronização declarativa com o repositório Git; audit trail por deploy
+- [ ] **Pipeline de segurança de supply chain** — assinatura de imagens (Cosign/AWS Signer), geração de SBOM, verificação de assinatura na admissão
+- [ ] **Lint e scan de manifests no CI** — integrar Checkov, Polaris ou kube-score para bloquear configurações inseguras antes do merge
+
+#### Confiabilidade Avançada
+- [ ] **Velero — backup de cluster e PVs** — sem backup, a recriação do cluster perde dados de PVCs (Prometheus histórico, logs persistentes); configurar backup periódico para S3
+- [ ] **NodeLocal DNSCache** — em clusters maiores, o CoreDNS torna-se gargalo; um DaemonSet de DNS local em cada node reduz latência e remove ponto único de falha de DNS
+- [ ] **Vertical Pod Autoscaler (VPA)** — em modo recomendação para identificar pods sub ou super-dimensionados; complementa o HPA
+- [ ] **HPA / KEDA por workload** — `node-ws` e outras aplicações sem autoscaling horizontal; KEDA para scaling baseado em eventos (SQS, Kafka)
+
+#### Observabilidade Avançada
+- [ ] **SLOs/SLIs com recording rules** — definir orçamentos de erro por serviço com alertas baseados em taxa de erros e latência em vez de métricas de infraestrutura
+- [ ] **CloudTrail + Athena para auditoria de API AWS** — rastrear quais pods (via IRSA) chamaram quais APIs AWS e quando; pipeline CloudTrail → S3 → Athena
+- [ ] **Kubecost ou OpenCost** — atribuição de custo por namespace/equipe/workload para chargeback e identificação de desperdício
+
+#### Documentação Operacional
+- [ ] **Runbooks operacionais** — procedimentos documentados para: upgrade de versão do EKS, substituição de nodes, recuperação de etcd, rollback de Helm release
+- [ ] **Procedimento de break-glass** — acesso de emergência documentado com trilha de auditoria
+- [ ] **Guia de DR** — estratégia documentada de recuperação: RPO/RTO por componente, procedimento de restore com Velero
 
 ---
 
@@ -589,4 +665,4 @@ Para perguntas ou problemas:
 
 **Última Atualização**: Março de 2026
 **Mantenedor**: Equipe ps-sl
-**Versão**: 1.1.0
+**Versão**: 1.2.0
