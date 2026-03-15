@@ -34,3 +34,13 @@ output "oidc_provider_arn" {
 output "alb_irsa_role" {
   value       = module.alb_irsa_role.iam_role_arn
 }
+
+output "intra_subnet_ids" {
+  description = "Dedicated pod subnets for EKS custom networking (one per AZ)"
+  value       = module.vpc.intra_subnets
+}
+
+output "node_security_group_id" {
+  description = "Security group ID attached to EKS managed nodes (used in ENIConfig)"
+  value       = module.eks.node_security_group_id
+}

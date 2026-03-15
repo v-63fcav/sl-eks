@@ -55,6 +55,21 @@ resource "aws_eks_access_policy_association" "admin_policy" {
   depends_on = [aws_eks_access_entry.admin_access]
 }
 
+# VPC CNI Addon - Enables custom networking so pods use dedicated intra subnets
+resource "aws_eks_addon" "vpc_cni" {
+  cluster_name = module.eks.cluster_name
+  addon_name   = "vpc-cni"
+
+  configuration_values = jsonencode({
+    env = {
+      AWS_VPC_K8S_CNI_CUSTOM_NETWORK_CFG = "true"
+      ENI_CONFIG_LABEL_DEF               = "topology.kubernetes.io/zone"
+    }
+  })
+
+  depends_on = [module.eks]
+}
+
 # EBS CSI Driver Addon - Required for EBS volume provisioning
 resource "aws_eks_addon" "ebs_csi_driver" {
   cluster_name             = module.eks.cluster_name
