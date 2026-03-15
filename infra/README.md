@@ -48,15 +48,18 @@ A VPC é dividida em três bandas contíguas, cada uma com slots sequenciais par
 ```
 10.0.0.0 – 10.0.7.255   Banda de Nodes   /24 por AZ  8 slots  (~249 nodes/AZ)
 10.0.8.0 – 10.0.15.255  Banda Pública    /24 por AZ  8 slots  (ALB + NAT GW)
-10.0.16.0– 10.0.239.255 Banda de Pods    /19 por AZ  7 slots  (~8k pods/AZ)
-10.0.240.0– 10.0.255.255                 Reservado   —        (futuro /20 8ª AZ de pods)
+10.0.16.0– 10.0.31.255  Gap de alinhamento (16 × /24 reservados — /19 exige múltiplos de 32)
+10.0.32.0– 10.0.223.255 Banda de Pods    /19 por AZ  6 slots  (~8k pods/AZ)
+10.0.224.0–10.0.255.255 Reservado        /19         1 slot   (7ª AZ de pods)
 ```
+
+> **Nota de alinhamento CIDR:** Um prefixo `/19` exige que o terceiro octeto seja múltiplo de 32 (0, 32, 64, 96, 128, 160, 192, 224). O bloco `10.0.16.0–10.0.31.255` é um gap inevitável entre a banda pública e a banda de pods devido a esta restrição.
 
 Para adicionar uma 3ª AZ, basta acrescentar o próximo bloco sequencial em cada lista:
 ```hcl
 private_subnets = ["10.0.0.0/24", "10.0.1.0/24", "10.0.2.0/24"]
 public_subnets  = ["10.0.8.0/24", "10.0.9.0/24", "10.0.10.0/24"]
-intra_subnets   = ["10.0.16.0/19", "10.0.48.0/19", "10.0.80.0/19"]
+intra_subnets   = ["10.0.32.0/19", "10.0.64.0/19", "10.0.96.0/19"]
 ```
 
 > **Referência futura — Opção CGNAT para pods:** O design atual acomoda 7 AZs de pods dentro do `/16` da VPC. Se o cluster crescer além desse limite (6+ AZs com alta densidade de pods), a solução recomendada pela AWS é adicionar um **CIDR secundário da VPC no espaço CGNAT (`100.64.0.0/10`)** exclusivamente para as subnets de pods, desacoplando completamente o espaço de pods do `/16` principal.

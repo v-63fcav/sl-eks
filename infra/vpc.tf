@@ -19,15 +19,18 @@ module "vpc" {
 
   name                 = "ps-sl-eks-vpc"
   cidr                 = var.vpc_cidr
-  azs                  = data.aws_availability_zones.available.names
+  # Slice to exactly match subnet count — prevents one_nat_gateway_per_az from
+  # trying to place NAT GWs in AZs that have no public subnet
+  azs = slice(data.aws_availability_zones.available.names, 0, 2)
+
   # Node band:   10.0.0.0–10.0.7.255   (/24 per AZ, 8 AZ slots, ~249 IPs each)
   # With custom networking nodes use 1 IP each (primary ENI only); /24 supports ~249 nodes/AZ
   private_subnets = ["10.0.0.0/24", "10.0.1.0/24"]
   # Public band:  10.0.8.0–10.0.15.255  (/24 per AZ, 8 AZ slots)
   public_subnets  = ["10.0.8.0/24", "10.0.9.0/24"]
-  # Pod band:     10.0.16.0–10.0.239.255 (/19 per AZ, 7 AZ slots, ~8k IPs each)
-  # 10.0.240.0–10.0.255.255 reserved — fits one /20 as an 8th pod AZ at half density
-  intra_subnets   = ["10.0.16.0/19", "10.0.48.0/19"]
+  # Pod band:     10.0.32.0–10.0.255.255 (/19 per AZ, 7 AZ slots, ~8k IPs each)
+  # 10.0.224.0–10.0.255.255 reserved — fits one /19 as a 7th pod AZ or /20 at half density
+  intra_subnets   = ["10.0.32.0/19", "10.0.64.0/19"]
   enable_nat_gateway     = true
   one_nat_gateway_per_az = true
   enable_dns_hostnames   = true

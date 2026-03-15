@@ -197,7 +197,7 @@ A VPC usa um design em **bandas de endereços** para separar tipos de subnet e p
 |---|---|---|---|
 | Nodes | `10.0.0.0–10.0.7.255` | `/24` (~249 IPs) | 8 AZs |
 | Public (ALB/NAT) | `10.0.8.0–10.0.15.255` | `/24` (~249 IPs) | 8 AZs |
-| Pods | `10.0.16.0–10.0.239.255` | `/19` (~8k IPs) | 7 AZs |
+| Pods | `10.0.32.0–10.0.255.255` | `/19` (~8k IPs) | 7 AZs |
 
 - **Custom Networking (VPC CNI)**: pods recebem IPs da banda de pods (subnets `intra`), não da subnet dos nodes. Cada node consome apenas 1 IP da subnet de nodes (ENI primário).
 - **NAT Gateway por AZ**: um NAT GW por zona de disponibilidade para eliminar ponto único de falha e cobranças de tráfego inter-AZ.
