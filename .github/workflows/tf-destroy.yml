@@ -3,6 +3,12 @@ name: Terraform Destroy
 on:
   workflow_dispatch:
 
+# Mesmo grupo do tf-deploy.yml — impede que destroy e deploy rodem ao mesmo tempo.
+# cancel-in-progress: false → nunca cancela um destroy em andamento.
+concurrency:
+  group: terraform-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   destroy-apps:
     name: Terraform Destroy - Apps
