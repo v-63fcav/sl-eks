@@ -1,3 +1,43 @@
+# =============================================================================
+# NODE
+# =============================================================================
+# IAM role assumed by EC2 worker nodes. Requires three AWS-managed policies:
+# WorkerNode (kubelet/EC2 APIs), CNI (VPC networking), ECR (image pulls).
+
+resource "aws_iam_role" "node" {
+  name = "${local.cluster_name}-node-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "ec2.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "node_worker" {
+  role       = aws_iam_role.node.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
+}
+
+resource "aws_iam_role_policy_attachment" "node_cni" {
+  role       = aws_iam_role.node.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
+}
+
+resource "aws_iam_role_policy_attachment" "node_ecr" {
+  role       = aws_iam_role.node.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
+}
+
+# =============================================================================
+# ALB CONTROLLER
+# =============================================================================
+# IRSA role for the AWS Load Balancer Controller — allows it to call EC2/ELB
+# APIs without static credentials using OIDC pod identity federation.
+
 resource "aws_iam_policy" "alb_controller" {
   name        = "AWSLoadBalancerControllerIAMPolicy"
   description = "IAM policy for AWS Load Balancer Controller"
@@ -21,8 +61,12 @@ module "alb_irsa_role" {
   }
 }
 
+# =============================================================================
+# EBS CSI DRIVER
+# =============================================================================
+# IRSA role for the EBS CSI Driver — allows it to manage EBS volumes on behalf
+# of PersistentVolumeClaims using the gp3 StorageClass.
 
-# IAM Role for EBS CSI Driver
 resource "aws_iam_role" "ebs_csi_driver_role" {
   name = "AmazonEKS_EBS_CSI_DriverRole"
 
