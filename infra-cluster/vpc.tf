@@ -63,10 +63,45 @@ module "vpc" {
 }
 
 # =============================================================================
+# POD SUBNET INTERNET ACCESS
+# =============================================================================
+# The vpc module's intra_subnets have no default route — they are intentionally
+# isolated. Pods (which get IPs from these subnets via custom networking) need
+# outbound internet to pull public container images (Docker Hub, quay.io, etc.).
+# These routes add 0.0.0.0/0 → NAT GW to each intra route table.
+# Both natgw_ids and intra_route_table_ids are ordered by AZ, so index N in
+# each list belongs to the same AZ.
+
+resource "aws_route" "intra_nat" {
+  count = length(module.vpc.intra_route_table_ids)
+
+  route_table_id         = module.vpc.intra_route_table_ids[count.index]
+  destination_cidr_block = "0.0.0.0/0"
+  nat_gateway_id         = module.vpc.natgw_ids[count.index]
+}
+
+# =============================================================================
 # VPC ENDPOINTS
 # =============================================================================
 # Keep node bootstrapping, ECR pulls, and IRSA token exchange off the NAT
 # gateway — reduces cost and keeps traffic within the AWS backbone.
+
+# Dedicated security group for all interface endpoints.
+# Allows inbound HTTPS from anywhere within the VPC so nodes, pods, and
+# future resources can reach endpoints without additional SG changes.
+resource "aws_security_group" "vpc_endpoints" {
+  name_prefix = "vpc-endpoints-"
+  vpc_id      = module.vpc.vpc_id
+  description = "Allow HTTPS from within the VPC to interface endpoints"
+
+  ingress {
+    description = "HTTPS from VPC"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = [var.vpc_cidr]
+  }
+}
 
 # S3 Gateway endpoint — free; used for ECR layer storage and S3-backed bootstrap
 resource "aws_vpc_endpoint" "s3" {
@@ -82,7 +117,7 @@ resource "aws_vpc_endpoint" "ecr_api" {
   service_name        = "com.amazonaws.${var.aws_region}.ecr.api"
   vpc_endpoint_type   = "Interface"
   subnet_ids          = module.vpc.private_subnets
-  security_group_ids  = [module.vpc.default_security_group_id]
+  security_group_ids  = [aws_security_group.vpc_endpoints.id]
   private_dns_enabled = true
 }
 
@@ -91,7 +126,7 @@ resource "aws_vpc_endpoint" "ecr_dkr" {
   service_name        = "com.amazonaws.${var.aws_region}.ecr.dkr"
   vpc_endpoint_type   = "Interface"
   subnet_ids          = module.vpc.private_subnets
-  security_group_ids  = [module.vpc.default_security_group_id]
+  security_group_ids  = [aws_security_group.vpc_endpoints.id]
   private_dns_enabled = true
 }
 
@@ -101,6 +136,18 @@ resource "aws_vpc_endpoint" "sts" {
   service_name        = "com.amazonaws.${var.aws_region}.sts"
   vpc_endpoint_type   = "Interface"
   subnet_ids          = module.vpc.private_subnets
-  security_group_ids  = [module.vpc.default_security_group_id]
+  security_group_ids  = [aws_security_group.vpc_endpoints.id]
+  private_dns_enabled = true
+}
+
+# EC2 endpoint — vpc-cni calls EC2 APIs to attach secondary ENIs for custom
+# networking. Keeping these calls in the AWS backbone avoids NAT GW latency
+# and cost during node scale-up events.
+resource "aws_vpc_endpoint" "ec2" {
+  vpc_id              = module.vpc.vpc_id
+  service_name        = "com.amazonaws.${var.aws_region}.ec2"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = module.vpc.private_subnets
+  security_group_ids  = [aws_security_group.vpc_endpoints.id]
   private_dns_enabled = true
 }

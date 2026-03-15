@@ -48,14 +48,14 @@ output "alb_irsa_role" {
   value       = module.alb_irsa_role.iam_role_arn
 }
 
+output "oidc_provider" {
+  description = "OIDC provider URL (without https://) for constructing IRSA trust policies."
+  value       = module.eks.oidc_provider
+}
+
 output "oidc_provider_arn" {
   description = "OIDC provider ARN for EKS cluster."
   value       = module.eks.oidc_provider_arn
-}
-
-output "ebs_csi_driver_role_arn" {
-  description = "IAM role ARN for the EBS CSI Driver."
-  value       = aws_iam_role.ebs_csi_driver_role.arn
 }
 
 output "aws_region" {
