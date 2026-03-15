@@ -16,6 +16,20 @@ module "eks" {
 
   vpc_id = module.vpc.vpc_id
 
+  # vpc-cni with before_compute = true ensures the addon is applied before any
+  # node group is created, so nodes boot with custom networking already active.
+  cluster_addons = {
+    vpc-cni = {
+      before_compute = true
+      configuration_values = jsonencode({
+        env = {
+          AWS_VPC_K8S_CNI_CUSTOM_NETWORK_CFG = "true"
+          ENI_CONFIG_LABEL_DEF               = "topology.kubernetes.io/zone"
+        }
+      })
+    }
+  }
+
   eks_managed_node_group_defaults = {
     ami_type               = "AL2023_x86_64_STANDARD"
     instance_types         = ["t3.medium"]
@@ -33,7 +47,7 @@ module "eks" {
 
 # Create access entries for IAM principals
 resource "aws_eks_access_entry" "admin_access" {
-  for_each     = toset(var.eks_admin_principal_arns)
+  for_each      = toset(var.eks_admin_principal_arns)
   cluster_name  = module.eks.cluster_name
   principal_arn = each.value
   type          = "STANDARD"
@@ -43,7 +57,7 @@ resource "aws_eks_access_entry" "admin_access" {
 
 # Associate cluster admin policy with the access entries
 resource "aws_eks_access_policy_association" "admin_policy" {
-  for_each     = toset(var.eks_admin_principal_arns)
+  for_each      = toset(var.eks_admin_principal_arns)
   cluster_name  = module.eks.cluster_name
   policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
   principal_arn = each.value
@@ -55,21 +69,6 @@ resource "aws_eks_access_policy_association" "admin_policy" {
   depends_on = [aws_eks_access_entry.admin_access]
 }
 
-# VPC CNI Addon - Enables custom networking so pods use dedicated intra subnets
-resource "aws_eks_addon" "vpc_cni" {
-  cluster_name = module.eks.cluster_name
-  addon_name   = "vpc-cni"
-
-  configuration_values = jsonencode({
-    env = {
-      AWS_VPC_K8S_CNI_CUSTOM_NETWORK_CFG = "true"
-      ENI_CONFIG_LABEL_DEF               = "topology.kubernetes.io/zone"
-    }
-  })
-
-  depends_on = [module.eks]
-}
-
 # EBS CSI Driver Addon - Required for EBS volume provisioning
 resource "aws_eks_addon" "ebs_csi_driver" {
   cluster_name             = module.eks.cluster_name
@@ -79,4 +78,3 @@ resource "aws_eks_addon" "ebs_csi_driver" {
 
   depends_on = [module.eks]
 }
-

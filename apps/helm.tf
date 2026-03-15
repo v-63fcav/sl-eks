@@ -37,7 +37,6 @@ resource "helm_release" "kube_prometheus_stack" {
   # CRDs can be large; increase timeout for first install
   timeout = 600
 
-  depends_on = [kubernetes_storage_class_v1.gp3]
 }
 
 resource "helm_release" "loki" {
@@ -49,7 +48,7 @@ resource "helm_release" "loki" {
 
   values = [file("${path.module}/values/values-loki.yaml")]
 
-  depends_on = [kubernetes_storage_class_v1.gp3, helm_release.kube_prometheus_stack]
+  depends_on = [helm_release.kube_prometheus_stack]
 }
 
 resource "helm_release" "promtail" {
@@ -84,7 +83,7 @@ resource "helm_release" "tempo" {
 
   values = [file("${path.module}/values/values-tempo.yaml")]
 
-  depends_on = [kubernetes_storage_class_v1.gp3, helm_release.kube_prometheus_stack]
+  depends_on = [helm_release.kube_prometheus_stack]
 }
 
 resource "helm_release" "opentelemetry_collector" {
@@ -128,7 +127,7 @@ resource "time_sleep" "otel_operator_ready" {
 
 resource "helm_release" "otel_platform" {
   name      = "otel-platform"
-  chart     = "${path.module}/otel-platform-chart"
+  chart     = "${path.module}/charts/otel-platform-chart"
   namespace = "default"
 
   depends_on = [time_sleep.otel_operator_ready]
@@ -136,7 +135,7 @@ resource "helm_release" "otel_platform" {
 
 resource "helm_release" "node_ws" {
   name      = "node-ws"
-  chart     = "${path.module}/app-chart"
+  chart     = "${path.module}/charts/app-chart"
   namespace = "default"
 
   depends_on = [helm_release.otel_platform]
@@ -144,7 +143,7 @@ resource "helm_release" "node_ws" {
 
 resource "helm_release" "otel_test_app" {
   name      = "otel-test-app"
-  chart     = "${path.module}/otel-test-app-chart"
+  chart     = "${path.module}/charts/otel-test-app-chart"
   namespace = "default"
 
   depends_on = [helm_release.opentelemetry_collector]

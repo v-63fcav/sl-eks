@@ -1,6 +1,9 @@
 # Local .terraform directories
 .terraform/
 
+# Lock file at repo root (no TF config lives here; subdirectory lock files are kept)
+/.terraform.lock.hcl
+
 # .tfstate files
 *.tfstate
 *.tfstate.*
