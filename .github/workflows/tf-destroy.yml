@@ -13,6 +13,10 @@ jobs:
   destroy-apps:
     name: Terraform Destroy - Apps
     runs-on: ubuntu-latest
+    outputs:
+      cluster_name:     ${{ steps.cluster.outputs.cluster_name }}
+      cluster_endpoint: ${{ steps.cluster.outputs.cluster_endpoint }}
+      cluster_ca:       ${{ steps.cluster.outputs.cluster_ca }}
     defaults:
       run:
         working-directory: apps
@@ -29,29 +33,29 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-2
 
-      # Initialize infra first to read its state outputs — needed to configure
-      # the Kubernetes and Helm providers in the apps layer
-      - name: Terraform Init - Infra (read outputs)
-        working-directory: infra
+      # Initialize infra-cluster to read its state outputs — needed to configure
+      # the Helm provider in the apps layer and to pass forward to destroy-infra-resources.
+      - name: Terraform Init - Infra Cluster (read outputs)
+        working-directory: infra-cluster
         run: |
           terraform init \
             -backend-config="bucket=ps-sl-state-bucket-cavi-2" \
-            -backend-config="key=terraform.tfstate" \
+            -backend-config="key=infra-cluster/terraform.tfstate" \
             -backend-config="region=us-east-2" \
             -backend-config="encrypt=true"
 
-      - name: Export Infra Outputs
-        id: infra
-        working-directory: infra
+      - name: Export Infra-Cluster Outputs
+        id: cluster
+        working-directory: infra-cluster
         run: |
-          echo "cluster_name=$(terraform output -raw cluster_name)" >> $GITHUB_OUTPUT
+          echo "cluster_name=$(terraform output -raw cluster_name)"         >> $GITHUB_OUTPUT
           echo "cluster_endpoint=$(terraform output -raw cluster_endpoint)" >> $GITHUB_OUTPUT
-          echo "cluster_ca=$(terraform output -raw cluster_ca)" >> $GITHUB_OUTPUT
-          echo "alb_irsa_role=$(terraform output -raw alb_irsa_role)" >> $GITHUB_OUTPUT
+          echo "cluster_ca=$(terraform output -raw cluster_ca)"             >> $GITHUB_OUTPUT
+          echo "alb_irsa_role=$(terraform output -raw alb_irsa_role)"       >> $GITHUB_OUTPUT
 
       - name: Setup kubectl
         uses: azure/setup-kubectl@v4
@@ -60,7 +64,7 @@ jobs:
         run: |
           aws eks update-kubeconfig \
             --region us-east-2 \
-            --name ${{ steps.infra.outputs.cluster_name }}
+            --name ${{ steps.cluster.outputs.cluster_name }}
 
       # Delete Ingress resources while the ALB Controller is still running.
       # The controller watches Ingress deletions to deprovision the AWS ALB and
@@ -72,7 +76,7 @@ jobs:
 
           # Poll until no ALBs tagged by this cluster remain in AWS.
           # This is more reliable than a fixed sleep.
-          CLUSTER="${{ steps.infra.outputs.cluster_name }}"
+          CLUSTER="${{ steps.cluster.outputs.cluster_name }}"
           echo "Waiting for ALBs tagged kubernetes.io/cluster/$CLUSTER to be deleted..."
           for i in $(seq 1 24); do
             COUNT=$(aws elbv2 describe-load-balancers --region us-east-2 \
@@ -127,18 +131,18 @@ jobs:
       - name: Terraform Destroy - Apps
         run: terraform destroy -auto-approve
         env:
-          TF_VAR_cluster_name: ${{ steps.infra.outputs.cluster_name }}
-          TF_VAR_kube_host: ${{ steps.infra.outputs.cluster_endpoint }}
-          TF_VAR_kube_ca: ${{ steps.infra.outputs.cluster_ca }}
-          TF_VAR_alb_irsa_role: ${{ steps.infra.outputs.alb_irsa_role }}
+          TF_VAR_cluster_name:  ${{ steps.cluster.outputs.cluster_name }}
+          TF_VAR_kube_host:     ${{ steps.cluster.outputs.cluster_endpoint }}
+          TF_VAR_kube_ca:       ${{ steps.cluster.outputs.cluster_ca }}
+          TF_VAR_alb_irsa_role: ${{ steps.cluster.outputs.alb_irsa_role }}
 
-  destroy-infra:
-    name: Terraform Destroy - Infra
+  destroy-infra-resources:
+    name: Terraform Destroy - Infra Resources
     runs-on: ubuntu-latest
     needs: destroy-apps
     defaults:
       run:
-        working-directory: infra
+        working-directory: infra-resources
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -151,7 +155,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-2
 
@@ -159,9 +163,47 @@ jobs:
         run: |
           terraform init \
             -backend-config="bucket=ps-sl-state-bucket-cavi-2" \
-            -backend-config="key=terraform.tfstate" \
+            -backend-config="key=infra-resources/terraform.tfstate" \
             -backend-config="region=us-east-2" \
             -backend-config="encrypt=true"
 
-      - name: Terraform Destroy - Infra
+      - name: Terraform Destroy - Infra Resources
+        run: terraform destroy -auto-approve
+        env:
+          TF_VAR_cluster_name: ${{ needs.destroy-apps.outputs.cluster_name }}
+          TF_VAR_kube_host:    ${{ needs.destroy-apps.outputs.cluster_endpoint }}
+          TF_VAR_kube_ca:      ${{ needs.destroy-apps.outputs.cluster_ca }}
+
+  destroy-infra-cluster:
+    name: Terraform Destroy - Infra Cluster
+    runs-on: ubuntu-latest
+    needs: destroy-infra-resources
+    defaults:
+      run:
+        working-directory: infra-cluster
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-2
+
+      - name: Terraform Init
+        run: |
+          terraform init \
+            -backend-config="bucket=ps-sl-state-bucket-cavi-2" \
+            -backend-config="key=infra-cluster/terraform.tfstate" \
+            -backend-config="region=us-east-2" \
+            -backend-config="encrypt=true"
+
+      - name: Terraform Destroy - Infra Cluster
         run: terraform destroy -auto-approve

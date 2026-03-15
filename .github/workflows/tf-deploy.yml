@@ -20,9 +20,13 @@ jobs:
       contents: read
       id-token: write
       issues: write
+    outputs:
+      cluster_name:     ${{ steps.export.outputs.cluster_name }}
+      cluster_endpoint: ${{ steps.export.outputs.cluster_endpoint }}
+      cluster_ca:       ${{ steps.export.outputs.cluster_ca }}
     defaults:
       run:
-        working-directory: infra
+        working-directory: infra-cluster
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -35,7 +39,7 @@ jobs:
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-2
 
@@ -43,7 +47,7 @@ jobs:
         run: |
           terraform init \
             -backend-config="bucket=ps-sl-state-bucket-cavi-2" \
-            -backend-config="key=terraform.tfstate" \
+            -backend-config="key=infra-cluster/terraform.tfstate" \
             -backend-config="region=us-east-2" \
             -backend-config="encrypt=true"
 
@@ -51,24 +55,31 @@ jobs:
         run: terraform validate
 
       - name: Terraform Apply
-        run: terraform apply -target=module.vpc -target=module.eks -auto-approve
+        run: terraform apply -auto-approve
+
+      - name: Export Outputs
+        id: export
+        run: |
+          echo "cluster_name=$(terraform output -raw cluster_name)"         >> $GITHUB_OUTPUT
+          echo "cluster_endpoint=$(terraform output -raw cluster_endpoint)" >> $GITHUB_OUTPUT
+          echo "cluster_ca=$(terraform output -raw cluster_ca)"             >> $GITHUB_OUTPUT
 
   infra-resources:
-    name: Infra — ENIConfigs + Node Group + Addons
+    name: Infra — ENIConfigs + Node Group
     runs-on: ubuntu-latest
     needs: infra-cluster
     outputs:
-      cluster_name: ${{ steps.export.outputs.cluster_name }}
+      cluster_name:     ${{ steps.export.outputs.cluster_name }}
       cluster_endpoint: ${{ steps.export.outputs.cluster_endpoint }}
-      cluster_ca: ${{ steps.export.outputs.cluster_ca }}
-      alb_irsa_role: ${{ steps.export.outputs.alb_irsa_role }}
+      cluster_ca:       ${{ steps.export.outputs.cluster_ca }}
+      alb_irsa_role:    ${{ steps.export.outputs.alb_irsa_role }}
     permissions:
       contents: read
       id-token: write
       issues: write
     defaults:
       run:
-        working-directory: infra
+        working-directory: infra-resources
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -81,7 +92,7 @@ jobs:
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-2
 
@@ -89,20 +100,24 @@ jobs:
         run: |
           terraform init \
             -backend-config="bucket=ps-sl-state-bucket-cavi-2" \
-            -backend-config="key=terraform.tfstate" \
+            -backend-config="key=infra-resources/terraform.tfstate" \
             -backend-config="region=us-east-2" \
             -backend-config="encrypt=true"
 
       - name: Terraform Apply
         run: terraform apply -auto-approve
+        env:
+          TF_VAR_cluster_name: ${{ needs.infra-cluster.outputs.cluster_name }}
+          TF_VAR_kube_host:    ${{ needs.infra-cluster.outputs.cluster_endpoint }}
+          TF_VAR_kube_ca:      ${{ needs.infra-cluster.outputs.cluster_ca }}
 
       - name: Export Outputs
         id: export
         run: |
-          echo "cluster_name=$(terraform output -raw cluster_name)" >> $GITHUB_OUTPUT
+          echo "cluster_name=$(terraform output -raw cluster_name)"         >> $GITHUB_OUTPUT
           echo "cluster_endpoint=$(terraform output -raw cluster_endpoint)" >> $GITHUB_OUTPUT
-          echo "cluster_ca=$(terraform output -raw cluster_ca)" >> $GITHUB_OUTPUT
-          echo "alb_irsa_role=$(terraform output -raw alb_irsa_role)" >> $GITHUB_OUTPUT
+          echo "cluster_ca=$(terraform output -raw cluster_ca)"             >> $GITHUB_OUTPUT
+          echo "alb_irsa_role=$(terraform output -raw alb_irsa_role)"       >> $GITHUB_OUTPUT
 
   apps:
     name: Apps — Helm Releases
@@ -127,7 +142,7 @@ jobs:
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-2
 
@@ -145,15 +160,15 @@ jobs:
       - name: Terraform Plan
         run: terraform plan -no-color -input=false
         env:
-          TF_VAR_cluster_name: ${{ needs.infra-resources.outputs.cluster_name }}
-          TF_VAR_kube_host: ${{ needs.infra-resources.outputs.cluster_endpoint }}
-          TF_VAR_kube_ca: ${{ needs.infra-resources.outputs.cluster_ca }}
+          TF_VAR_cluster_name:  ${{ needs.infra-resources.outputs.cluster_name }}
+          TF_VAR_kube_host:     ${{ needs.infra-resources.outputs.cluster_endpoint }}
+          TF_VAR_kube_ca:       ${{ needs.infra-resources.outputs.cluster_ca }}
           TF_VAR_alb_irsa_role: ${{ needs.infra-resources.outputs.alb_irsa_role }}
 
       - name: Terraform Apply
         run: terraform apply -auto-approve
         env:
-          TF_VAR_cluster_name: ${{ needs.infra-resources.outputs.cluster_name }}
-          TF_VAR_kube_host: ${{ needs.infra-resources.outputs.cluster_endpoint }}
-          TF_VAR_kube_ca: ${{ needs.infra-resources.outputs.cluster_ca }}
+          TF_VAR_cluster_name:  ${{ needs.infra-resources.outputs.cluster_name }}
+          TF_VAR_kube_host:     ${{ needs.infra-resources.outputs.cluster_endpoint }}
+          TF_VAR_kube_ca:       ${{ needs.infra-resources.outputs.cluster_ca }}
           TF_VAR_alb_irsa_role: ${{ needs.infra-resources.outputs.alb_irsa_role }}
