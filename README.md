@@ -47,27 +47,35 @@ Este projeto implementa uma plataforma completa de observabilidade Kubernetes na
 ### Infraestrutura AWS
 
 ```
-┌────────────────────────────────────────────────────────────────────────────┐
-│                           AWS · Region: us-east-2                          │
-│  ┌──────────────────────────────────────────────────────────────────────┐  │
-│  │                          VPC  10.0.0.0/16                            │  │
-│  │                                                                      │  │
-│  │  ┌──────────────────────────────┐  ┌──────────────────────────────┐  │  │
-│  │  │     Public Subnets  (ALB)    │  │   Private Subnets  (Nodes)   │  │  │
-│  │  │     10.0.4.0/24              │  │   10.0.1.0/24                │  │  │
-│  │  │     10.0.5.0/24              │  │   10.0.2.0/24                │  │  │
-│  │  │                              │  │                              │  │  │
-│  │  │     Internet Gateway (IGW)   │  │   NAT Gateway                │  │  │
-│  │  │     ALB — Grafana            │  │   EKS Worker Nodes           │  │  │
-│  │  │     ALB — Applications       │  │   t3.medium × 2–6            │  │  │
-│  │  └──────────────────────────────┘  └──────────────────────────────┘  │  │
-│  │                                                                      │  │
-│  │  ┌──────────────────────────────────────────────────────────────┐    │  │
-│  │  │                  EKS Cluster (Kubernetes 1.32)               │    │  │
-│  │  │          Managed Control Plane · OIDC · EBS CSI addon        │    │  │
-│  │  └──────────────────────────────────────────────────────────────┘    │  │
-│  └──────────────────────────────────────────────────────────────────────┘  │
-└────────────────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────────────────────┐
+│                              AWS · Region: us-east-2                              │
+│  ┌─────────────────────────────────────────────────────────────────────────────┐  │
+│  │                             VPC  10.0.0.0/16                                │  │
+│  │                                                                             │  │
+│  │  ┌─────────────────────────┐  ┌─────────────────────────┐                  │  │
+│  │  │   Public Band (ALB/NAT) │  │   Node Band (Workers)   │                  │  │
+│  │  │   10.0.8.0/24  AZ-a     │  │   10.0.0.0/24  AZ-a     │                  │  │
+│  │  │   10.0.9.0/24  AZ-b     │  │   10.0.1.0/24  AZ-b     │                  │  │
+│  │  │                         │  │                         │                  │  │
+│  │  │   IGW · NAT GW (×AZ)    │  │   t3.medium × 2–6       │                  │  │
+│  │  │   ALB — Grafana         │  │   1 IP/node (custom CNI) │                  │  │
+│  │  └─────────────────────────┘  └─────────────────────────┘                  │  │
+│  │                                                                             │  │
+│  │  ┌─────────────────────────────────────────────────────┐                   │  │
+│  │  │              Pod Band (Custom Networking)           │                   │  │
+│  │  │              10.0.16.0/19  AZ-a  (~8k IPs)          │                   │  │
+│  │  │              10.0.48.0/19  AZ-b  (~8k IPs)          │                   │  │
+│  │  └─────────────────────────────────────────────────────┘                   │  │
+│  │                                                                             │  │
+│  │  ┌─────────────────────────────────────────────────────────────────────┐   │  │
+│  │  │              EKS Cluster (Kubernetes 1.34)                          │   │  │
+│  │  │   Managed Control Plane · OIDC · EBS CSI addon · VPC CNI addon      │   │  │
+│  │  └─────────────────────────────────────────────────────────────────────┘   │  │
+│  │                                                                             │  │
+│  │  VPC Endpoints: S3 (Gateway) · ECR API · ECR DKR · STS                    │  │
+│  │  VPC Flow Logs → CloudWatch Logs (30d retention)                           │  │
+│  └─────────────────────────────────────────────────────────────────────────────┘  │
+└───────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Stack de Observabilidade
@@ -183,14 +191,27 @@ sl-eks/
 
 ### Arquitetura de Rede
 
-- **VPC** `10.0.0.0/16` com subnets públicas (ALB) e privadas (nodes) em 2 AZs
-- **NAT Gateway** único nas subnets públicas para acesso de saída dos nodes
-- **Security Group** dos worker nodes: ingress liberado para RFC-1918, egress irrestrito
+A VPC usa um design em **bandas de endereços** para separar tipos de subnet e permitir crescimento sequencial por AZ:
+
+| Banda | Range | Prefixo/AZ | Slots disponíveis |
+|---|---|---|---|
+| Nodes | `10.0.0.0–10.0.7.255` | `/24` (~249 IPs) | 8 AZs |
+| Public (ALB/NAT) | `10.0.8.0–10.0.15.255` | `/24` (~249 IPs) | 8 AZs |
+| Pods | `10.0.16.0–10.0.239.255` | `/19` (~8k IPs) | 7 AZs |
+
+- **Custom Networking (VPC CNI)**: pods recebem IPs da banda de pods (subnets `intra`), não da subnet dos nodes. Cada node consome apenas 1 IP da subnet de nodes (ENI primário).
+- **NAT Gateway por AZ**: um NAT GW por zona de disponibilidade para eliminar ponto único de falha e cobranças de tráfego inter-AZ.
+- **VPC Flow Logs**: captura todo o tráfego de rede no CloudWatch Logs com retenção de 30 dias.
+- **VPC Endpoints**: S3 (Gateway, gratuito), ECR API, ECR DKR e STS — mantém pulls de imagem e tokens IRSA dentro da rede AWS sem passar pelo NAT GW.
+- **Security Group** dos worker nodes: ingress liberado para RFC-1918, egress irrestrito.
+
+> **Referência futura — Opção CGNAT:** O design atual suporta até 7 AZs de pods dentro do `/16` da VPC. Para escala além desse limite, a alternativa recomendada é adicionar um **CIDR secundário da VPC no espaço CGNAT (`100.64.0.0/10`)** dedicado às subnets de pods — desacoplando completamente o espaço de IPs de pods do `/16` principal e eliminando o teto de 7 AZs. Ver detalhes de implementação em [infra/README.md](infra/README.md).
 
 ### Recursos de Computação
 
-- **Cluster EKS** v1.32 com endpoints público e privado habilitados
+- **Cluster EKS** v1.34 com endpoints público e privado habilitados
 - **Node Group** gerenciado: `t3.medium` (2 vCPU, 4 GiB), 2 nodes (escala até 6), nas subnets privadas
+- **Addon VPC CNI** com custom networking habilitado (`AWS_VPC_K8S_CNI_CUSTOM_NETWORK_CFG=true`)
 
 ### Configuração IAM (IRSA)
 

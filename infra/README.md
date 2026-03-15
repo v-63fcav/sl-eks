@@ -7,14 +7,17 @@ Este diretório contém todo o código Terraform que provisiona a fundação AWS
 ```
 Conta AWS
 └── VPC (10.0.0.0/16)
-    ├── Subnets públicas   [10.0.4.0/24, 10.0.5.0/24]  — ALB fica aqui
-    │   └── Internet Gateway
-    ├── Subnets privadas   [10.0.1.0/24, 10.0.2.0/24]  — nodes ficam aqui
-    │   └── NAT Gateway (único, na primeira AZ)
+    ├── Banda de Nodes    [10.0.0.0/24, 10.0.1.0/24]   — 1 IP/node (ENI primário)
+    ├── Banda Pública     [10.0.8.0/24, 10.0.9.0/24]   — ALB e NAT Gateway (um por AZ)
+    ├── Banda de Pods     [10.0.16.0/19, 10.0.48.0/19] — IPs de pods via custom networking
+    │   └── ENIConfig CRDs mapeiam AZ → subnet de pods (gerenciado pela camada apps/)
+    ├── VPC Endpoints: S3 (Gateway), ECR API, ECR DKR, STS
+    ├── VPC Flow Logs → CloudWatch Logs (retenção 30 dias)
     └── Cluster EKS (ps-sl-eks-<random8>)
         ├── Control Plane Gerenciado
         ├── Node Group Gerenciado  (t3.medium × 2, escala até 6)
         ├── OIDC Identity Provider
+        ├── Addon VPC CNI  (custom networking habilitado)
         ├── Addon EBS CSI Driver
         └── IAM
             ├── EBS CSI Driver Role   (IRSA)
@@ -31,10 +34,67 @@ Conta AWS
 |---|---|
 | Módulo | `terraform-aws-modules/vpc/aws` v5.7.0 |
 | CIDR | `10.0.0.0/16` (configurável via `var.vpc_cidr`) |
-| Subnets públicas | `10.0.4.0/24`, `10.0.5.0/24` |
-| Subnets privadas | `10.0.1.0/24`, `10.0.2.0/24` |
-| NAT Gateway | Único (otimizado para custo; ponto único de falha para saída) |
+| Subnets de nodes (private) | `10.0.0.0/24`, `10.0.1.0/24` |
+| Subnets públicas | `10.0.8.0/24`, `10.0.9.0/24` |
+| Subnets de pods (intra) | `10.0.16.0/19`, `10.0.48.0/19` |
+| NAT Gateway | Um por AZ (`one_nat_gateway_per_az = true`) — HA e sem custo inter-AZ |
+| VPC Flow Logs | Habilitado — todo tráfego (`ALL`) → CloudWatch Logs, retenção 30 dias |
 | DNS hostnames | Habilitado — obrigatório para EKS e ALB |
+
+#### Design em Bandas de Endereços
+
+A VPC é dividida em três bandas contíguas, cada uma com slots sequenciais para adicionar AZs sem reorganização:
+
+```
+10.0.0.0 – 10.0.7.255   Banda de Nodes   /24 por AZ  8 slots  (~249 nodes/AZ)
+10.0.8.0 – 10.0.15.255  Banda Pública    /24 por AZ  8 slots  (ALB + NAT GW)
+10.0.16.0– 10.0.239.255 Banda de Pods    /19 por AZ  7 slots  (~8k pods/AZ)
+10.0.240.0– 10.0.255.255                 Reservado   —        (futuro /20 8ª AZ de pods)
+```
+
+Para adicionar uma 3ª AZ, basta acrescentar o próximo bloco sequencial em cada lista:
+```hcl
+private_subnets = ["10.0.0.0/24", "10.0.1.0/24", "10.0.2.0/24"]
+public_subnets  = ["10.0.8.0/24", "10.0.9.0/24", "10.0.10.0/24"]
+intra_subnets   = ["10.0.16.0/19", "10.0.48.0/19", "10.0.80.0/19"]
+```
+
+> **Referência futura — Opção CGNAT para pods:** O design atual acomoda 7 AZs de pods dentro do `/16` da VPC. Se o cluster crescer além desse limite (6+ AZs com alta densidade de pods), a solução recomendada pela AWS é adicionar um **CIDR secundário da VPC no espaço CGNAT (`100.64.0.0/10`)** exclusivamente para as subnets de pods, desacoplando completamente o espaço de pods do `/16` principal.
+>
+> ```hcl
+> # Adicionar CIDR secundário CGNAT à VPC
+> resource "aws_vpc_ipv4_cidr_block_association" "cgnat" {
+>   vpc_id     = module.vpc.vpc_id
+>   cidr_block = "100.64.0.0/16"   # /10 disponível: 4.1M IPs; usar fatias /16 por env
+> }
+>
+> # Subnets de pods no espaço CGNAT — uma por AZ, sem limite de bandas do /16
+> resource "aws_subnet" "pods" {
+>   for_each          = { "us-east-2a" = "100.64.0.0/19", "us-east-2b" = "100.64.32.0/19" }
+>   vpc_id            = module.vpc.vpc_id
+>   cidr_block        = each.value
+>   availability_zone = each.key
+> }
+> ```
+>
+> **Por que CGNAT (`100.64.0.0/10`)?** É um bloco reservado (RFC 6598) não roteável na internet pública e não conflita com ranges RFC-1918 comuns em redes corporativas ou VPNs. Cada `/16` dentro do `/10` oferece 65k IPs — capacidade de pods praticamente ilimitada. O VPC module não suporta `intra_subnets` com CIDRs secundários nativamente; as subnets precisariam ser gerenciadas como recursos `aws_subnet` separados com `ENIConfig` correspondentes.
+
+#### Custom Networking (VPC CNI)
+
+Com custom networking habilitado no addon VPC CNI, pods recebem IPs da banda de pods (`intra_subnets`) em vez da subnet dos nodes. Cada node consome apenas 1 IP da subnet de nodes (ENI primário). Os CRDs `ENIConfig` — um por AZ, mapeando zona → subnet de pods — são criados pela camada `apps/` após o cluster estar disponível.
+
+> **Nota de operação**: ao habilitar custom networking em um cluster existente, os nodes devem ser reciclados para que o VPC CNI aplique a nova configuração de ENI.
+
+#### VPC Endpoints
+
+| Endpoint | Tipo | Custo | Finalidade |
+|---|---|---|---|
+| S3 | Gateway | Gratuito | Downloads de layers ECR (armazenados no S3) e bootstrap dos nodes |
+| ECR API | Interface | ~$7/mês | Chamadas de metadata e autenticação (`GetAuthorizationToken`) |
+| ECR DKR | Interface | ~$7/mês | Transferência de layers de imagens de contêiner |
+| STS | Interface | ~$7/mês | `AssumeRoleWithWebIdentity` para cada service account com IRSA |
+
+Sem os endpoints de interface, todo tráfego ECR e STS sai pelo NAT GW — em clusters ocupados, o custo de processamento do NAT supera o custo dos endpoints.
 
 **A tagueação das subnets** é fundamental para que o AWS Load Balancer Controller descubra onde posicionar os ALBs:
 
@@ -88,6 +148,21 @@ Os nodes rodam em subnets privadas. O acesso à internet para saída passa pelo 
 
 `var.eks_admin_principal_arns` é uma lista de ARNs de principais IAM que recebem `AmazonEKSClusterAdminPolicy` com escopo no cluster. Isso é feito via `aws_eks_access_entry` + `aws_eks_access_policy_association`, que usa a API de Access Entries do EKS (Kubernetes 1.23+) em vez do `aws-auth` ConfigMap legado. Adicione o ARN do seu usuário ou role IAM aqui para obter acesso `kubectl` sem passos manuais.
 
+#### Addon VPC CNI
+
+O addon `vpc-cni` é gerenciado explicitamente via `aws_eks_addon` com `configuration_values` que habilitam custom networking:
+
+```json
+{
+  "env": {
+    "AWS_VPC_K8S_CNI_CUSTOM_NETWORK_CFG": "true",
+    "ENI_CONFIG_LABEL_DEF": "topology.kubernetes.io/zone"
+  }
+}
+```
+
+`ENI_CONFIG_LABEL_DEF=topology.kubernetes.io/zone` instrui o CNI a procurar automaticamente o `ENIConfig` cujo nome corresponda ao label de AZ do node — sem necessidade de anotação manual nos nodes.
+
 #### Addon EBS CSI Driver
 
 O addon `aws-ebs-csi-driver` (v1.29.1-eksbuild.1) é instalado como addon gerenciado do EKS. Ele habilita o provisionamento dinâmico de volumes EBS para `PersistentVolumeClaims`. O addon roda com a IRSA role `ebs_csi_driver_role` (veja a seção IAM). Sem este addon, PVCs usando o provisioner `ebs.csi.aws.com` ficariam em estado `Pending`.
@@ -136,6 +211,8 @@ A camada `apps/` lê estes outputs via Terraform remote state:
 | `oidc_provider_arn` | Não consumido diretamente por apps (usado dentro de infra para IRSA) |
 | `alb_irsa_role` | Injetado nos values do ALB controller como anotação de service account |
 | `region` | providers de `apps/` |
+| `intra_subnet_ids` | `apps/` — usado na criação dos CRDs `ENIConfig` por AZ |
+| `node_security_group_id` | `apps/` — aplicado nos ENIs de pods via `ENIConfig.spec.securityGroups` |
 
 ---
 
@@ -143,7 +220,7 @@ A camada `apps/` lê estes outputs via Terraform remote state:
 
 | Variável | Padrão | Descrição |
 |---|---|---|
-| `kubernetes_version` | `1.32` | Versão do control plane do EKS |
+| `kubernetes_version` | `1.34` | Versão do control plane do EKS |
 | `vpc_cidr` | `10.0.0.0/16` | Espaço de endereços da VPC |
 | `aws_region` | `us-east-2` | Região AWS de destino |
 | `eks_admin_principal_arns` | Dois ARNs (Felipe + root) | Principais IAM com acesso admin ao cluster |

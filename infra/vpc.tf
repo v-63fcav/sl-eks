@@ -20,18 +20,20 @@ module "vpc" {
   name                 = "ps-sl-eks-vpc"
   cidr                 = var.vpc_cidr
   azs                  = data.aws_availability_zones.available.names
-  # Node band:   10.0.0.0–10.0.23.255  (/22 per AZ, 6 AZ slots of ~1k IPs each)
-  private_subnets = ["10.0.0.0/22", "10.0.4.0/22"]
-  # Public band:  10.0.24.0–10.0.31.255 (/24 per AZ, 8 AZ slots of ~250 IPs each)
-  public_subnets  = ["10.0.24.0/24", "10.0.25.0/24"]
-  # Pod band:     10.0.32.0–10.0.255.255 (/19 per AZ, 7 AZ slots of ~8k IPs each)
-  intra_subnets   = ["10.0.32.0/19", "10.0.64.0/19"]
+  # Node band:   10.0.0.0–10.0.7.255   (/24 per AZ, 8 AZ slots, ~249 IPs each)
+  # With custom networking nodes use 1 IP each (primary ENI only); /24 supports ~249 nodes/AZ
+  private_subnets = ["10.0.0.0/24", "10.0.1.0/24"]
+  # Public band:  10.0.8.0–10.0.15.255  (/24 per AZ, 8 AZ slots)
+  public_subnets  = ["10.0.8.0/24", "10.0.9.0/24"]
+  # Pod band:     10.0.16.0–10.0.239.255 (/19 per AZ, 7 AZ slots, ~8k IPs each)
+  # 10.0.240.0–10.0.255.255 reserved — fits one /20 as an 8th pod AZ at half density
+  intra_subnets   = ["10.0.16.0/19", "10.0.48.0/19"]
   enable_nat_gateway     = true
   one_nat_gateway_per_az = true
   enable_dns_hostnames   = true
   enable_dns_support     = true
 
-  VPC Flow Logs — captures all traffic metadata for auditing and incident response
+  # VPC Flow Logs — captures all traffic metadata for auditing and incident response
   enable_flow_log                                 = true
   create_flow_log_cloudwatch_log_group            = true
   create_flow_log_cloudwatch_iam_role             = true
