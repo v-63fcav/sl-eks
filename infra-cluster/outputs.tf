@@ -53,6 +53,11 @@ output "oidc_provider_arn" {
   value       = module.eks.oidc_provider_arn
 }
 
+output "ebs_csi_driver_role_arn" {
+  description = "IAM role ARN for the EBS CSI Driver."
+  value       = aws_iam_role.ebs_csi_driver_role.arn
+}
+
 output "aws_region" {
   description = "AWS region."
   value       = var.aws_region
