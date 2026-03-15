@@ -28,13 +28,14 @@
 
 ## 🎯 Visão Geral
 
-Este projeto implementa uma plataforma completa de observabilidade Kubernetes na AWS EKS utilizando as melhores práticas de Infraestrutura como Código (IaC). A solução utiliza Terraform para gerenciamento declarativo de infraestrutura, EKS para orquestração de contêineres e o stack Prometheus/Grafana para monitoramento e observabilidade abrangente.
+Este projeto implementa uma plataforma completa de observabilidade Kubernetes na AWS EKS utilizando as melhores práticas de Infraestrutura como Código (IaC). A solução utiliza Terraform para gerenciamento declarativo de infraestrutura, EKS para orquestração de contêineres e o stack Prometheus/Grafana/Loki/Tempo para monitoramento e observabilidade abrangente dos três sinais (métricas, logs e traces).
 
 ### Funcionalidades Principais
 
 - **Infraestrutura Declarativa**: Provisionamento de infraestrutura baseado em Terraform
 - **Alta Disponibilidade**: Cluster EKS multi-AZ com node groups distribuídos
-- **Observabilidade**: Stack integrado de monitoramento Prometheus e Grafana
+- **Observabilidade Completa**: Stack integrado de métricas (Prometheus), logs (Loki + Promtail) e traces (Tempo)
+- **Tracing Distribuído**: Dois padrões de instrumentação — Zipkin via OTel Collector e auto-instrumentação zero-code via OTel Operator
 - **CI/CD**: GitHub Actions para deployments automatizados
 - **Ingress**: AWS Application Load Balancer Controller para gerenciamento de tráfego
 - **Segurança**: Topologia de rede isolada com subnets privadas para workloads
@@ -43,52 +44,58 @@ Este projeto implementa uma plataforma completa de observabilidade Kubernetes na
 
 ## 🏗️ Arquitetura
 
-### Arquitetura de Alto Nível
+### Infraestrutura AWS
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                        Região AWS                           │
-│  ┌─────────────────────────────────────────────────────────┐ │
-│  │                      VPC                                 │ │
-│  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐ │ │
-│  │  │ Subnet Pública│  │ Subnet Pública│  │ Subnet Pública│ │ │
-│  │  │   (AZ-1)      │  │   (AZ-2)      │  │   (AZ-3)      │ │ │
-│  │  │   ┌─────┐    │  │   ┌─────┐    │  │   ┌─────┐    │ │ │
-│  │  │   │ IGW │    │  │   │     │    │  │   │     │    │ │ │
-│  │  │   └─────┘    │  │   └─────┘    │  │   └─────┘    │ │ │
-│  │  └──────────────┘  └──────────────┘  └──────────────┘ │ │
-│  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐ │ │
-│  │  │Subnet Privada│  │Subnet Privada│  │Subnet Privada│ │ │
-│  │  │   (AZ-1)      │  │   (AZ-2)      │  │   (AZ-3)      │ │ │
-│  │  │   ┌─────┐    │  │   ┌─────┐    │  │   ┌─────┐    │ │ │
-│  │  │   │ NAT │    │  │   │ NAT │    │  │   │ NAT │    │ │ │
-│  │  │   └─────┘    │  │   └─────┘    │  │   └─────┘    │ │ │
-│  │  └──────────────┘  └──────────────┘  └──────────────┘ │ │
-│  │                                                       │ │
-│  │  ┌─────────────────────────────────────────────────┐ │ │
-│  │  │                Cluster EKS                        │ │ │
-│  │  │  ┌────────────────────────────────────────────┐│ │ │
-│  │  │  │          Control Plane (Gerenciado)        ││ │ │
-│  │  │  └────────────────────────────────────────────┘│ │ │
-│  │  │  ┌────────────────────────────────────────────┐│ │ │
-│  │  │  │          Node Groups                       ││ │ │
-│  │  │  │  ┌──────────────────────────────────────┐ ││ │ │
-│  │  │  │  │         Worker Nodes                 │ ││ │ │
-│  │  │  │  │  ┌────────────────────────────────┐ ││ │ │
-│  │  │  │  │  │     ALB Ingress Controller     │ ││ │ │
-│  │  │  │  │  └────────────────────────────────┘ ││ │ │
-│  │  │  │  │  ┌────────────────────────────────┐ ││ │ │
-│  │  │  │  │  │     Prometheus + Grafana       │ ││ │ │
-│  │  │  │  │  └────────────────────────────────┘ ││ │ │
-│  │  │  │  │  ┌────────────────────────────────┐ ││ │ │
-│  │  │  │  │  │     Blackbox Exporter          │ ││ │ │
-│  │  │  │  │  └────────────────────────────────┘ ││ │ │
-│  │  │  │  └──────────────────────────────────────┘ ││ │ │
-│  │  │  └────────────────────────────────────────────┘│ │ │
-│  │  └─────────────────────────────────────────────────┘ │ │
-│  └─────────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────────┐
+│                           AWS · Region: us-east-2                          │
+│  ┌──────────────────────────────────────────────────────────────────────┐  │
+│  │                          VPC  10.0.0.0/16                            │  │
+│  │                                                                      │  │
+│  │  ┌──────────────────────────────┐  ┌──────────────────────────────┐  │  │
+│  │  │     Public Subnets  (ALB)    │  │   Private Subnets  (Nodes)   │  │  │
+│  │  │     10.0.4.0/24              │  │   10.0.1.0/24                │  │  │
+│  │  │     10.0.5.0/24              │  │   10.0.2.0/24                │  │  │
+│  │  │                              │  │                              │  │  │
+│  │  │     Internet Gateway (IGW)   │  │   NAT Gateway                │  │  │
+│  │  │     ALB — Grafana            │  │   EKS Worker Nodes           │  │  │
+│  │  │     ALB — Applications       │  │   t3.medium × 2–6            │  │  │
+│  │  └──────────────────────────────┘  └──────────────────────────────┘  │  │
+│  │                                                                      │  │
+│  │  ┌──────────────────────────────────────────────────────────────┐    │  │
+│  │  │                  EKS Cluster (Kubernetes 1.32)               │    │  │
+│  │  │          Managed Control Plane · OIDC · EBS CSI addon        │    │  │
+│  │  └──────────────────────────────────────────────────────────────┘    │  │
+│  └──────────────────────────────────────────────────────────────────────┘  │
+└────────────────────────────────────────────────────────────────────────────┘
 ```
+
+### Stack de Observabilidade
+
+```
+              ┌──────────────────────────────────────────┐
+              │                 Grafana                  │  ← ALB
+              └───────────┬──────────────────────────────┘
+                          │
+           ┌──────────────┼──────────────┐
+           ▼              ▼              ▼
+      Prometheus         Loki          Tempo
+      (metrics)         (logs)        (traces)
+           ▲           ▲   ▲             ▲
+           │    Promtail   │             │
+           │    (DaemonSet)│             │
+           └───────────────┴─────────────┘
+                           ▲
+                    OTel Collector
+               (OTLP gRPC/HTTP + Zipkin)
+                    ▲             ▲
+           ┌────────┘             └────────┐
+           │                              │
+    otel-test-app                     node-ws
+  (Zipkin, fake-service)     (OTLP, OTel Operator SDK)
+```
+
+> Para o detalhamento completo do pipeline de tracing (Zipkin vs OTLP, auto-instrumentação, portas), consulte [apps/README-otel.md](apps/README-otel.md).
 
 ### Fases de Deploy
 
@@ -131,7 +138,7 @@ Antes de implantar este projeto, certifique-se de ter o seguinte instalado:
 ## 📁 Estrutura do Projeto
 
 ```
-eks-study/
+sl-eks/
 ├── infra/                              # Camada de infraestrutura AWS
 │   ├── eks-cluster.tf                 # Cluster EKS, node groups, addon EBS CSI
 │   ├── iam.tf                         # Roles IRSA para EBS CSI e ALB controller
@@ -150,14 +157,18 @@ eks-study/
 │   ├── variables.tf                   # Variáveis de entrada
 │   ├── versions.tf                    # Versões dos providers
 │   ├── backend.tf                     # Configuração do backend Terraform
-│   ├── sample-app-chart/              # Chart Helm local da aplicação de exemplo
+│   ├── app-chart/                     # Chart Helm genérico de aplicação (node-ws)
+│   ├── otel-test-app-chart/           # Chart Helm do fake-service (otel-test-app)
+│   ├── otel-platform-chart/           # Chart Helm com Instrumentation CRs compartilhados
 │   ├── values/                        # Values dos charts Helm
 │   │   ├── values-alb-controller.yaml
 │   │   ├── values-kube-prometheus-stack.yaml
 │   │   ├── values-loki.yaml
 │   │   ├── values-tempo.yaml
-│   │   └── values-otel-collector.yaml
-│   └── README.md                      # Documentação detalhada da camada apps
+│   │   ├── values-otel-collector.yaml
+│   │   └── values-otel-operator.yaml
+│   ├── README.md                      # Documentação detalhada da camada apps
+│   └── README-otel.md                 # Detalhamento do pipeline de tracing OTel
 ├── .gitignore
 └── README.md
 ```
@@ -185,7 +196,7 @@ eks-study/
 
 Nenhuma credencial estática. Ambas as roles usam **IRSA via OIDC**:
 
-- **EBS CSI Driver Role** — permite ao addon `aws-ebs-csi-driver` criar/annexar volumes EBS, restrito à service account `kube-system:ebs-csi-controller-sa`
+- **EBS CSI Driver Role** — permite ao addon `aws-ebs-csi-driver` criar/anexar volumes EBS, restrito à service account `kube-system:ebs-csi-controller-sa`
 - **ALB Controller Role** — permite ao AWS Load Balancer Controller gerenciar ALBs, restrito à service account `kube-system:aws-load-balancer-controller`
 - **EKS Access Entries** — acesso admin configurado via API de Access Entries (sem necessidade de editar `aws-auth` ConfigMap)
 
@@ -208,11 +219,18 @@ Nenhuma credencial estática. Ambas as roles usam **IRSA via OIDC**:
 | **Promtail** | Coleta de logs de todos os namespaces (DaemonSet) | Logs |
 | **Tempo** | Armazenamento de traces distribuídos | Traces |
 | **OTel Collector** | Gateway OTLP — recebe e roteia os três sinais | Métricas / Logs / Traces |
+| **OTel Operator** | Auto-instrumentação zero-code via webhook mutante | Traces |
+| **otel-platform** | Instrumentation CRs compartilhados por namespace | — |
 | **AWS Load Balancer Controller** | Provisiona ALBs a partir de recursos Ingress | — |
 
-### Aplicação de Exemplo
+### Aplicações de Exemplo
 
-- **sample-app**: Nginx simples com PVC gp3 de 5 GiB, usado para validar o cluster e o storage
+| Aplicação | Imagem | Instrumentação | Protocolo |
+|---|---|---|---|
+| **otel-test-app** | `nicholasjackson/fake-service:v0.26.2` | Built-in (Zipkin) | Zipkin → OTel Collector → Tempo |
+| **node-ws** | `node:20-alpine` | Zero-code (OTel Operator SDK inject) | OTLP/HTTP → OTel Collector → Tempo |
+
+> Para detalhes sobre os dois padrões de instrumentação, consulte [apps/README-otel.md](apps/README-otel.md).
 
 ---
 
@@ -242,7 +260,7 @@ Nenhuma credencial estática. Ambas as roles usam **IRSA via OIDC**:
 
 5. **Configure o kubectl**
    ```bash
-   aws eks update-kubeconfig --region <região> --name <nome-do-cluster>
+   aws eks update-kubeconfig --region <região> --name $(terraform output -raw cluster_name)
    ```
 
 ### Fase 2: Deploy de Aplicações
@@ -312,6 +330,18 @@ kubectl get ingress -n monitoring
 
 > ⚠️ **Nota de Segurança**: Altere as credenciais padrão imediatamente após o primeiro deploy. Use AWS Secrets Manager ou secrets do Kubernetes para deployments em produção.
 
+### Aplicações de Teste
+
+```bash
+# URL do otel-test-app (fake-service)
+kubectl get ingress otel-test-app -n default \
+  -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
+
+# URL do node-ws
+kubectl get ingress node-ws -n default \
+  -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
+```
+
 ### Recursos AWS
 
 Acesse o Console AWS para visualizar:
@@ -339,18 +369,13 @@ variable "vpc_cidr" {
   default     = "10.0.0.0/16"
 }
 
-variable "cluster_name" {
-  description = "Nome do cluster EKS"
-  default     = "ps-sl-cluster"
-}
-
-variable "eks_admin_principal_arn" {
-  type        = string
-  description = "IAM principal ARN para conceder acesso de administrador ao cluster EKS (ex: arn:aws:iam::123456789012:user/username)"
+variable "eks_admin_principal_arns" {
+  type        = list(string)
+  description = "Lista de ARNs IAM com acesso de administrador ao cluster EKS"
 }
 ```
 
-> **Nota**: O parâmetro `eks_admin_principal_arn` é obrigatório e configura automaticamente o acesso administrativo ao cluster EKS via Terraform, eliminando a necessidade de comandos manuais `aws eks create-access-entry` e `aws eks associate-access-policy`.
+> **Nota**: O parâmetro `eks_admin_principal_arns` é obrigatório e configura automaticamente o acesso administrativo ao cluster EKS via Terraform, usando a API de Access Entries (sem necessidade de editar o `aws-auth` ConfigMap).
 
 ### Values Helm
 
@@ -422,8 +447,22 @@ kubectl logs -n monitoring -l app.kubernetes.io/name=grafana
 
 ```bash
 # Verificar targets do Prometheus
-kubectl port-forward -n monitoring svc/prometheus-server 9090:80
+kubectl port-forward -n monitoring svc/prometheus-operated 9090:9090
 # Acesse http://localhost:9090/targets
+```
+
+#### 5. Traces Não Aparecendo no Grafana
+
+```bash
+# Verificar se o OTel Collector está recebendo spans
+kubectl logs -n monitoring -l app.kubernetes.io/name=opentelemetry-collector --tail=30
+
+# Verificar se o OTel Operator está rodando
+kubectl get pods -n opentelemetry-operator-system
+
+# Verificar se a SDK foi injetada no pod
+kubectl describe pod -n default -l app.kubernetes.io/name=node-ws \
+  | grep -A5 'Init Containers'
 ```
 
 ### Modo de Debug
@@ -442,7 +481,6 @@ terraform apply
 ### Melhorias Planejadas
 
 - [ ] **Documentação Completa**
-  - Diagramas de arquitetura com interações detalhadas de componentes
   - Runbooks para tarefas operacionais comuns
   - Procedimentos de recuperação de desastres
   - Guias de otimização de custos
@@ -462,7 +500,6 @@ terraform apply
   - ~~Criação de PV/PVC para persistência de dados do Prometheus~~ ✅ Implementado (gp3, todos os componentes)
   - ~~Provisionamento de volumes EBS com IOPS apropriados~~ ✅ gp3 com EBS CSI Driver
   - Procedimentos de backup e restore
-  - Otimização de storage classes
 
 - [ ] **Implementação de GitOps**
   - Substituir deployments Helm baseados em Terraform por ArgoCD/Flux
@@ -474,9 +511,10 @@ terraform apply
   - ~~Monitoramento de Performance de Aplicação (APM)~~ ✅ OTel Collector + Tempo
   - ~~Integração de tracing distribuído~~ ✅ Tempo com correlação trace→log
   - ~~Coleta de métricas personalizadas~~ ✅ via OTLP para Prometheus
+  - ~~Auto-instrumentação zero-code~~ ✅ OTel Operator com SDK injection (Node.js)
   - Alertas avançados com integração PagerDuty/Slack
 
-- [ ] **Melhorias de Segurança**
+- [x] **Melhorias de Segurança**
   - ~~IRSA (IAM Roles for Service Accounts)~~ ✅ Implementado
   - Implementação de Pod Security Standards
   - Aplicação de políticas de rede
@@ -528,6 +566,6 @@ Para perguntas ou problemas:
 
 ---
 
-**Última Atualização**: Março de 2026  
-**Mantenedor**: Equipe ps-sl  
-**Versão**: 1.0.0
+**Última Atualização**: Março de 2026
+**Mantenedor**: Equipe ps-sl
+**Versão**: 1.1.0

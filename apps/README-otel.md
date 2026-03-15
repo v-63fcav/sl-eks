@@ -1,250 +1,250 @@
-# OpenTelemetry Observability Stack
+# Stack de Observabilidade OpenTelemetry
 
-This document describes the distributed tracing setup deployed in this EKS cluster.
-Two complementary instrumentation approaches are used, both routing through the same
-OTel Collector and landing in Grafana Tempo.
+Este documento descreve a configuração de tracing distribuído implantada neste cluster EKS.
+Dois métodos complementares de instrumentação são usados, ambos roteando pelo mesmo
+OTel Collector e chegando ao Grafana Tempo.
 
 ---
 
-## Table of Contents
+## Índice
 
-1. [Overview](#overview)
-2. [Stack 1 — OTel Collector (Protocol Translation)](#stack-1--otel-collector-protocol-translation)
-3. [Stack 2 — OTel Operator (Auto-Instrumentation)](#stack-2--otel-operator-auto-instrumentation)
-4. [Shared Backend](#shared-backend)
-5. [Component Deep-Dive](#component-deep-dive)
+1. [Visão Geral](#visão-geral)
+2. [Stack 1 — OTel Collector (Tradução de Protocolo)](#stack-1--otel-collector-tradução-de-protocolo)
+3. [Stack 2 — OTel Operator (Auto-Instrumentação)](#stack-2--otel-operator-auto-instrumentação)
+4. [Backend Compartilhado](#backend-compartilhado)
+5. [Detalhamento dos Componentes](#detalhamento-dos-componentes)
    - [fake-service (otel-test-app)](#fake-service-otel-test-app)
    - [node-ws (app-chart)](#node-ws-app-chart)
    - [OpenTelemetry Collector](#opentelemetry-collector)
    - [OpenTelemetry Operator](#opentelemetry-operator)
-   - [otel-platform (shared Instrumentation CRs)](#otel-platform-shared-instrumentation-crs)
+   - [otel-platform (Instrumentation CRs compartilhados)](#otel-platform-instrumentation-crs-compartilhados)
    - [Tempo](#tempo)
    - [Grafana](#grafana)
-6. [Pipeline Internals](#pipeline-internals)
-7. [Port Reference](#port-reference)
-8. [How to Test](#how-to-test)
+6. [Internos do Pipeline](#internos-do-pipeline)
+7. [Referência de Portas](#referência-de-portas)
+8. [Como Testar](#como-testar)
 
 ---
 
-## Overview
+## Visão Geral
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                              EKS Cluster                                    │
+│                              Cluster EKS                                    │
 │                                                                             │
-│  STACK 1: Collector                     STACK 2: Operator                  │
+│  STACK 1: Collector                     STACK 2: Operator                   │
 │                                                                             │
-│  ┌──────────────┐  Zipkin               ┌──────────────┐  OTLP/HTTP        │
-│  │  fake-service│─────────────┐         │   node-ws    │──────────┐        │
-│  │ (otel-test-  │  :9411      │         │  (app-chart) │  :4318   │        │
-│  │    app)      │             │         │  [SDK injected           │        │
-│  └──────────────┘             │         │   by Operator]│          │        │
-│                               │         └──────────────┘          │        │
-│                               │              ▲                     │        │
-│                               │    otel-platform-chart             │        │
-│                               │    Instrumentation CR "nodejs"     │        │
-│                               ▼                                    ▼        │
-│                    ┌──────────────────────────────────────────────────┐    │
-│                    │           OpenTelemetry Collector                │    │
-│                    │           (gateway, namespace: monitoring)        │    │
-│                    │  receivers: zipkin :9411, otlp :4317/:4318       │    │
-│                    └─────────────────────┬────────────────────────────┘    │
-│                                          │  OTLP/gRPC :4317                │
+│  ┌──────────────┐  Zipkin               ┌──────────────┐  OTLP/HTTP         │
+│  │  fake-service│─────────────┐         │   node-ws    │──────────┐         │
+│  │ (otel-test-  │  :9411      │         │  (app-chart) │  :4318   │         │
+│  │    app)      │             │         │[SDK injetado │          │         │
+│  └──────────────┘             │         │pelo Operator]│          │         │
+│                               │         └──────────────┘          │         │
+│                               │              ▲                    │         │
+│                               │    otel-platform-chart            │         │
+│                               │    Instrumentation CR "nodejs"    │         │
+│                               ▼                                   ▼         │
+│                    ┌──────────────────────────────────────────────────┐     │
+│                    │           OpenTelemetry Collector                │     │
+│                    │           (gateway, namespace: monitoring)       │     │
+│                    │  receivers: zipkin :9411, otlp :4317/:4318       │     │
+│                    └─────────────────────┬────────────────────────────┘     │
+│                                          │  OTLP/gRPC :4317                 │
 │                                          ▼                                  │
-│                                   ┌──────────┐                             │
-│                                   │  Tempo   │                             │
-│                                   └────┬─────┘                             │
-│                                        │  HTTP :3100                       │
-│                                        ▼                                   │
-│                                   ┌──────────┐                             │
-│                                   │ Grafana  │                             │
-│                                   └──────────┘                             │
+│                                   ┌──────────┐                              │
+│                                   │  Tempo   │                              │
+│                                   └────┬─────┘                              │
+│                                        │  HTTP :3100                        │
+│                                        ▼                                    │
+│                                   ┌──────────┐                              │ 
+│                                   │ Grafana  │                              │
+│                                   └──────────┘                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-Both stacks converge at the Collector. Traces from either app are stored in Tempo
-and visible in Grafana under their respective `service.name`.
+Os dois stacks convergem no Collector. Traces de qualquer app são armazenados no Tempo
+e visíveis no Grafana pelo respectivo `service.name`.
 
 ---
 
-## Stack 1 — OTel Collector (Protocol Translation)
+## Stack 1 — OTel Collector (Tradução de Protocolo)
 
 **App:** `otel-test-app` (fake-service)
-**How instrumented:** Built-in — the image ships with Zipkin tracing enabled via an environment variable.
-**Tracing protocol:** Zipkin HTTP → OTel Collector → OTLP → Tempo
+**Como instrumentada:** Embutido — a imagem já vem com tracing Zipkin habilitado via variável de ambiente.
+**Protocolo de tracing:** Zipkin HTTP → OTel Collector → OTLP → Tempo
 
 ```
-User / curl
+Usuário / curl
     │  HTTP :80 (ALB)
     ▼
 ┌─────────────────────────────────────────────────────┐
-│  fake-service  (nicholasjackson/fake-service:v0.26.2)│
+│  fake-service (nicholasjackson/fake-service:v0.26.2)│
 │  namespace: default                                 │
 │                                                     │
 │  env: NAME=otel-test-app                            │
 │  env: TRACING_ZIPKIN=http://opentelemetry-          │
 │       collector.monitoring:9411/api/v2/spans        │
 │                                                     │
-│  On each request:                                   │
-│    1. Handles HTTP request                          │
-│    2. Records timing and status                     │
-│    3. Builds a Zipkin span                          │
-│    4. POSTs span to TRACING_ZIPKIN                  │
+│  A cada requisição:                                 │
+│    1. Processa a requisição HTTP                    │
+│    2. Registra tempo e status                       │
+│    3. Constrói um span Zipkin                       │
+│    4. Faz POST do span para TRACING_ZIPKIN          │
 └────────────────────────┬────────────────────────────┘
                          │  POST /api/v2/spans (Zipkin, :9411)
                          ▼
               OTel Collector (zipkin receiver)
-                         │  converts Zipkin → OTLP
+                         │  converte Zipkin → OTLP
                          ▼
                        Tempo
 ```
 
-**Why Zipkin and not OTLP?**
-fake-service predates the OTLP standard. Its tracing support is built on the Zipkin
-client library. Because the Collector accepts both protocols, this is not a problem —
-it translates transparently and Tempo never sees Zipkin.
+**Por que Zipkin e não OTLP?**
+O fake-service é anterior ao padrão OTLP. Seu suporte a tracing é baseado na biblioteca
+cliente Zipkin. Como o Collector aceita ambos os protocolos, isso não é um problema —
+ele traduz de forma transparente e o Tempo nunca vê Zipkin.
 
 ---
 
-## Stack 2 — OTel Operator (Auto-Instrumentation)
+## Stack 2 — OTel Operator (Auto-Instrumentação)
 
 **App:** `node-ws` (app-chart)
-**How instrumented:** Zero-code — the OTel Operator injects the Node.js SDK at pod startup via a mutating webhook.
-**Tracing protocol:** OTLP/HTTP → OTel Collector → OTLP/gRPC → Tempo
+**Como instrumentada:** Zero-code — o OTel Operator injeta o SDK Node.js na inicialização do pod via webhook mutante.
+**Protocolo de tracing:** OTLP/HTTP → OTel Collector → OTLP/gRPC → Tempo
 
 ```
-User / curl
+Usuário / curl
     │  HTTP :80 (ALB)
     ▼
 ┌─────────────────────────────────────────────────────┐
 │  node-ws  (node:20-alpine)                          │
 │  namespace: default                                 │
 │                                                     │
-│  annotation:                                        │
+│  anotação:                                          │
 │    instrumentation.opentelemetry.io/inject-nodejs:  │
-│    "nodejs"   ← references the shared CR by name   │
+│    "nodejs"   ← referencia o CR compartilhado       │
 │                                                     │
-│  env: OTEL_SERVICE_NAME=node-ws  ← set per-app     │
+│  env: OTEL_SERVICE_NAME=node-ws  ← definido por app │
 │                                                     │
-│  At pod startup, the Operator webhook:              │
-│    1. Sees the annotation on the pod                │
-│    2. Reads the "nodejs" Instrumentation CR         │
-│       (deployed by otel-platform-chart)             │
-│    3. Injects an init container that downloads      │
-│       the Node.js OTel SDK                          │
-│    4. Adds NODE_OPTIONS=--require @opentelemetry/.. │
-│       so the SDK auto-patches http, dns, etc.       │
+│  Na inicialização do pod, o webhook do Operator:    │
+│    1. Vê a anotação no pod                          │
+│    2. Lê o Instrumentation CR "nodejs"              │
+│       (implantado pelo otel-platform-chart)         │
+│    3. Injeta um init container que baixa            │
+│       o OTel SDK do Node.js                         │
+│    4. Add NODE_OPTIONS=--require @opentelemetry/..  │
+│       para que o SDK instrumente http, dns, etc.    │
 │                                                     │
-│  At runtime, the SDK:                               │
-│    1. Intercepts every http.createServer request    │
-│    2. Creates a span with method, url, status       │
-│    3. Exports via OTLP HTTP to the Collector        │
+│  Em runtime, o SDK:                                 │
+│    1. Intercepta toda requisição http.createServer  │
+│    2. Cria um span com method, url, status          │
+│    3. Exporta via OTLP HTTP para o Collector        │
 └────────────────────────┬────────────────────────────┘
                          │  OTLP/HTTP :4318
                          ▼
               OTel Collector (otlp/http receiver)
-                         │  forwards as OTLP/gRPC
+                         │  repassa como OTLP/gRPC
                          ▼
                        Tempo
 ```
 
-### Why the Operator approach?
+### Por que usar o Operator?
 
-| | Collector stack | Operator stack |
+| | Stack Collector | Stack Operator |
 |---|---|---|
-| Code changes needed | None | None |
-| Works with any language | No (app must speak Zipkin/OTLP) | Yes (language-specific SDK injection) |
-| Trace granularity | App-level | Function/library-level (http, db, dns) |
-| SDK maintenance | App's responsibility | Operator manages SDK version |
-| Best for | Pre-built images with tracing built in | Standard language runtimes |
+| Mudanças de código necessárias | Nenhuma | Nenhuma |
+| Funciona com qualquer linguagem | Não (app deve falar Zipkin/OTLP) | Sim (injeção de SDK específico da linguagem) |
+| Granularidade de traces | Nível de aplicação | Nível de função/biblioteca (http, db, dns) |
+| Manutenção do SDK | Responsabilidade da app | Operator gerencia a versão do SDK |
+| Melhor para | Imagens pré-construídas com tracing embutido | Runtimes de linguagem padrão |
 
 ---
 
-## Shared Backend
+## Backend Compartilhado
 
-Both stacks send all traces through the same Collector, into the same Tempo instance,
-and are visible in the same Grafana workspace — filtered by `service.name`.
+Ambos os stacks enviam todos os traces pelo mesmo Collector, para a mesma instância do Tempo,
+e são visíveis no mesmo workspace do Grafana — filtrados por `service.name`.
 
 ```
 Grafana → Explore → Tempo → Search
-  Service Name: otel-test-app   ← Stack 1 traces
-  Service Name: node-ws         ← Stack 2 traces
+  Service Name: otel-test-app   ← traces do Stack 1
+  Service Name: node-ws         ← traces do Stack 2
 ```
 
 ---
 
-## Component Deep-Dive
+## Detalhamento dos Componentes
 
 ### fake-service (otel-test-app)
 
-**Image:** `nicholasjackson/fake-service:v0.26.2`
+**Imagem:** `nicholasjackson/fake-service:v0.26.2`
 **Namespace:** `default`
-**Chart:** `apps/otel-test-app-chart/` (local Helm chart)
+**Chart:** `apps/otel-test-app-chart/` (chart Helm local)
 
-#### Key environment variables
+#### Variáveis de ambiente principais
 
-| Variable         | Value                                                         | Purpose                                  |
-|------------------|---------------------------------------------------------------|------------------------------------------|
-| `NAME`           | `otel-test-app`                                               | Sets the service name reported in traces |
-| `TRACING_ZIPKIN` | `http://opentelemetry-collector.monitoring:9411/api/v2/spans` | Where to POST Zipkin-format spans        |
+| Variável | Valor | Finalidade |
+|---|---|---|
+| `NAME` | `otel-test-app` | Define o nome do serviço reportado nos traces |
+| `TRACING_ZIPKIN` | `http://opentelemetry-collector.monitoring:9411/api/v2/spans` | Onde fazer POST dos spans no formato Zipkin |
 
 #### Endpoints
 
-| Path      | Description                                     |
-|-----------|-------------------------------------------------|
-| `/`       | Returns a JSON response; generates a trace span |
-| `/health` | Health check; used by ALB and probes            |
+| Caminho | Descrição |
+|---|---|
+| `/` | Retorna uma resposta JSON; gera um span de trace |
+| `/health` | Health check; usado pelo ALB e probes |
 
 ---
 
 ### node-ws (app-chart)
 
-**Image:** `node:20-alpine`
+**Imagem:** `node:20-alpine`
 **Namespace:** `default`
-**Chart:** `apps/app-chart/` (local Helm chart, app-agnostic)
+**Chart:** `apps/app-chart/` (chart Helm local, agnóstico à aplicação)
 
-The application is a minimal inline Node.js HTTP server. It has no OTel SDK in its
-source — the Operator injects the SDK at pod startup via `NODE_OPTIONS`. The app
-identifies itself in Tempo via a pod-level env var, not the shared Instrumentation CR.
+A aplicação é um servidor HTTP Node.js mínimo inline. Não possui OTel SDK em seu
+código-fonte — o Operator injeta o SDK na inicialização do pod via `NODE_OPTIONS`. A app
+se identifica no Tempo via variável de ambiente no pod, não pelo Instrumentation CR compartilhado.
 
-#### Key values
+#### Values principais
 
-| Value | Default | Purpose |
+| Value | Padrão | Finalidade |
 |---|---|---|
-| `otel.serviceName` | `node-ws` | Sets `OTEL_SERVICE_NAME` on the pod — appears as service name in Tempo |
-| `otel.instrumentationRef` | `nodejs` | Name of the `Instrumentation` CR to use from `otel-platform-chart` |
-| `otel.inject` | `true` | Toggles the inject annotation on/off |
+| `otel.serviceName` | `node-ws` | Define `OTEL_SERVICE_NAME` no pod — aparece como nome do serviço no Tempo |
+| `otel.instrumentationRef` | `nodejs` | Nome do CR `Instrumentation` a usar do `otel-platform-chart` |
+| `otel.inject` | `true` | Liga/desliga a anotação de injeção |
 
-#### Key resources
+#### Recursos principais
 
-| Resource | Name | Purpose |
+| Recurso | Nome | Finalidade |
 |---|---|---|
-| Deployment annotation | `inject-nodejs: "nodejs"` | Triggers the Operator webhook |
-| Pod env var | `OTEL_SERVICE_NAME=node-ws` | App-specific service name in Tempo |
-| Init container (injected) | `opentelemetry-auto-instrumentation-nodejs` | Copies SDK files into the pod |
+| Anotação do Deployment | `inject-nodejs: "nodejs"` | Dispara o webhook do Operator |
+| Variável de ambiente do pod | `OTEL_SERVICE_NAME=node-ws` | Nome de serviço específico da app no Tempo |
+| Init container (injetado) | `opentelemetry-auto-instrumentation-nodejs` | Copia arquivos do SDK para dentro do pod |
 
-#### Verify injection worked
+#### Verificar se a injeção funcionou
 
 ```bash
 kubectl describe pod -n default -l app.kubernetes.io/name=node-ws \
   | grep -A5 'Init Containers'
-# Should show: opentelemetry-auto-instrumentation-nodejs
+# Deve mostrar: opentelemetry-auto-instrumentation-nodejs
 
 kubectl exec -n default deploy/node-ws -- env | grep NODE_OPTIONS
-# Should show: --require @opentelemetry/auto-instrumentations-node/register
+# Deve mostrar: --require @opentelemetry/auto-instrumentations-node/register
 ```
 
 ---
 
 ### OpenTelemetry Collector
 
-**Image:** `otel/opentelemetry-collector-contrib`
+**Imagem:** `otel/opentelemetry-collector-contrib`
 **Chart:** `open-telemetry/opentelemetry-collector v0.118.0`
 **Namespace:** `monitoring`
-**Mode:** `deployment` (gateway — one centralised instance)
+**Modo:** `deployment` (gateway — uma instância centralizada)
 
-The `-contrib` image includes community-contributed components: the `zipkin` receiver
-and the `loki` exporter, which are not in the core distribution.
+A imagem `-contrib` inclui componentes contribuídos pela comunidade: o receiver `zipkin`
+e o exporter `loki`, que não estão na distribuição principal.
 
 #### Receivers
 
@@ -252,45 +252,45 @@ and the `loki` exporter, which are not in the core distribution.
 receivers:
   otlp:
     protocols:
-      grpc: { endpoint: "0.0.0.0:4317" }   # node-ws (Operator stack) and any OTLP app
-      http: { endpoint: "0.0.0.0:4318" }   # node-ws (Operator stack)
+      grpc: { endpoint: "0.0.0.0:4317" }   # node-ws (stack Operator) e qualquer app OTLP
+      http: { endpoint: "0.0.0.0:4318" }   # node-ws (stack Operator)
   zipkin:
-    endpoint: "0.0.0.0:9411"               # fake-service (Collector stack)
+    endpoint: "0.0.0.0:9411"               # fake-service (stack Collector)
 ```
 
-#### Processors
+#### Processadores
 
-**`memory_limiter`** (runs first in every pipeline)
+**`memory_limiter`** (executa primeiro em todo pipeline)
 ```yaml
 memory_limiter:
   check_interval: 1s
   limit_percentage: 75
   spike_limit_percentage: 20
 ```
-Prevents the Collector pod from OOM-killing itself under traffic spikes.
+Impede que o pod do Collector seja morto por OOM em picos de tráfego.
 
-**`batch`** (runs second)
+**`batch`** (executa segundo)
 ```yaml
 batch:
   timeout: 5s
   send_batch_size: 1000
 ```
-Reduces network overhead — 1 request per 1000 spans instead of 1000 individual requests.
+Reduz overhead de rede — 1 requisição por 1000 spans em vez de 1000 requisições individuais.
 
 #### Pipelines
 
 ```
-traces pipeline:
-  receivers:  [otlp, zipkin]          ← accepts both stacks
+pipeline de traces:
+  receivers:  [otlp, zipkin]          ← aceita ambos os stacks
   processors: [memory_limiter, batch]
   exporters:  [otlp/tempo]
 
-metrics pipeline:
+pipeline de métricas:
   receivers:  [otlp]
   processors: [memory_limiter, batch]
   exporters:  [prometheusremotewrite]
 
-logs pipeline:
+pipeline de logs:
   receivers:  [otlp]
   processors: [memory_limiter, batch]
   exporters:  [loki]
@@ -303,63 +303,63 @@ logs pipeline:
 **Chart:** `open-telemetry/opentelemetry-operator`
 **Namespace:** `opentelemetry-operator-system`
 
-Kubernetes controller that watches for pods with OTel injection annotations. When it
-sees one, it mutates the pod spec before it starts:
+Controller Kubernetes que observa pods com anotações de injeção OTel. Quando detecta um,
+faz o patch na spec do pod antes de iniciá-lo:
 
-1. Adds an **init container** that downloads the language-specific SDK
-2. Injects **environment variables** (`NODE_OPTIONS`, `OTEL_EXPORTER_OTLP_ENDPOINT`, etc.) from the referenced `Instrumentation` CR
-3. The pod-level `OTEL_SERVICE_NAME` env var takes precedence over anything set in the CR
+1. Adiciona um **init container** que baixa o SDK específico da linguagem
+2. Injeta **variáveis de ambiente** (`NODE_OPTIONS`, `OTEL_EXPORTER_OTLP_ENDPOINT`, etc.) do CR `Instrumentation` referenciado
+3. A variável `OTEL_SERVICE_NAME` no nível do pod tem precedência sobre qualquer valor que o Operator injetaria
 
 ```
 kubectl create pod
     │
     ▼
 Kubernetes API Server
-    │  calls mutating webhook
+    │  chama webhook mutante
     ▼
 OTel Operator webhook
-    │  reads Instrumentation CR "nodejs" from otel-platform-chart
-    │  patches pod spec
+    │  lê Instrumentation CR "nodejs" do otel-platform-chart
+    │  faz patch na spec do pod
     ▼
-Pod starts with SDK pre-loaded
+Pod inicia com SDK pré-carregado
 ```
 
-**Cert configuration:** No cert-manager in this cluster. The operator generates its
-own self-signed webhook certificate via `autoGenerateCert`.
+**Configuração de certificado:** Sem cert-manager neste cluster. O operator gera seu
+próprio certificado de webhook autoassinado via `autoGenerateCert`.
 
-**Timing:** The operator registers its CRDs and webhook asynchronously after the
-Helm release completes. A 30-second `time_sleep` in Terraform ensures the CRD is
-available before `otel-platform-chart` tries to create an `Instrumentation` CR against it.
+**Temporização:** O operator registra seus CRDs e webhook de forma assíncrona após o
+Helm release completar. Um `time_sleep` de 30 segundos no Terraform garante que o CRD
+esteja disponível antes que o `otel-platform-chart` tente criar um CR `Instrumentation` contra ele.
 
 ---
 
-### otel-platform (shared Instrumentation CRs)
+### otel-platform (Instrumentation CRs compartilhados)
 
-**Chart:** `apps/otel-platform-chart/` (local Helm chart)
+**Chart:** `apps/otel-platform-chart/` (chart Helm local)
 **Namespace:** `default`
 **Values:** [otel-platform-chart/values.yaml](otel-platform-chart/values.yaml)
 
-Owns all `Instrumentation` CRs for the `default` namespace. Decoupled from individual
-app charts so that:
+Possui todos os CRs `Instrumentation` para o namespace `default`. Desacoplado dos charts
+individuais das aplicações para que:
 
-- Adding a new app requires no changes to the platform layer
-- All apps share the same collector endpoint and sampling config
-- The platform team controls SDK versions and sampling independently of app teams
+- Adicionar uma nova app não exija mudanças na camada de plataforma
+- Todas as apps compartilhem o mesmo endpoint do collector e configuração de sampling
+- O time de plataforma controle versões de SDK e sampling de forma independente dos times de app
 
-#### Current CRs
+#### CRs atuais
 
-| CR name | Language | Annotation to use |
+| Nome do CR | Linguagem | Anotação para usar |
 |---|---|---|
 | `nodejs` | Node.js | `inject-nodejs: "nodejs"` |
 
-#### Design decision: no `OTEL_SERVICE_NAME` in the CR
+#### Decisão de design: sem `OTEL_SERVICE_NAME` no CR
 
-`OTEL_SERVICE_NAME` is intentionally omitted from the shared CR. Each app sets it
-as a pod env var, which takes precedence over anything the Operator would inject.
-This means one CR serves all Node.js apps in the namespace without modification.
+`OTEL_SERVICE_NAME` é omitido intencionalmente do CR compartilhado. Cada app o define
+como variável de ambiente no pod, que tem precedência sobre qualquer coisa que o Operator injetaria.
+Isso significa que um único CR serve todas as apps Node.js no namespace sem modificação.
 
 ```yaml
-# otel-platform-chart — shared, no service name
+# otel-platform-chart — compartilhado, sem nome de serviço
 spec:
   nodejs:
     env:
@@ -367,12 +367,12 @@ spec:
         value: http://opentelemetry-collector.monitoring:4318
       - name: OTEL_EXPORTER_OTLP_PROTOCOL
         value: http/protobuf
-      # OTEL_SERVICE_NAME deliberately absent
+      # OTEL_SERVICE_NAME deliberadamente ausente
 
-# app-chart — per-app pod env var
+# app-chart — variável de ambiente no pod por app
 env:
   - name: OTEL_SERVICE_NAME
-    value: node-ws      # each app sets its own
+    value: node-ws      # cada app define o seu próprio
 ```
 
 ---
@@ -381,20 +381,20 @@ env:
 
 **Chart:** `grafana/tempo v1.14.0`
 **Namespace:** `monitoring`
-**Storage:** 20 GiB gp3 EBS (encrypted)
-**Retention:** 24 hours
+**Storage:** 20 GiB gp3 EBS (criptografado)
+**Retenção:** 24 horas
 
-Receives OTLP spans from the Collector and stores them. Queried by Grafana via HTTP
-on port 3100. A `ServiceMonitor` is enabled so Prometheus scrapes Tempo's own metrics.
+Recebe spans OTLP do Collector e os armazena. Consultado pelo Grafana via HTTP
+na porta 3100. Um `ServiceMonitor` é habilitado para que o Prometheus colete as próprias métricas do Tempo.
 
 ---
 
 ### Grafana
 
-**Chart:** `kube-prometheus-stack` (bundled Grafana)
+**Chart:** `kube-prometheus-stack` (Grafana integrado)
 **Namespace:** `monitoring`
 
-Tempo datasource pre-configured with trace-to-log correlation:
+Datasource Tempo pré-configurado com correlação trace-to-log:
 
 ```yaml
 additionalDataSources:
@@ -403,37 +403,37 @@ additionalDataSources:
     url: http://tempo.monitoring.svc.cluster.local:3100
     jsonData:
       tracesToLogsV2:
-        datasourceUid: loki    # click a span → jump to matching Loki logs
+        datasourceUid: loki    # clique em um span → pula para os logs Loki correspondentes
       lokiSearch:
         datasourceUid: loki
 ```
 
 ---
 
-## Pipeline Internals
+## Internos do Pipeline
 
-### Why the order of processors matters
+### Por que a ordem dos processadores importa
 
 ```
 [receiver] → memory_limiter → batch → [exporter]
 ```
 
-`memory_limiter` must come **before** `batch`. If it came after, the batch processor
-would already have accumulated data in memory before the limiter could act.
+O `memory_limiter` deve vir **antes** do `batch`. Se viesse depois, o processador batch
+já teria acumulado dados em memória antes que o limiter pudesse agir.
 
-### Protocol translation (Stack 1: Zipkin → OTLP)
+### Tradução de protocolo (Stack 1: Zipkin → OTLP)
 
 ```
-fake-service produces:
+fake-service produz:
   Zipkin span {
     traceId: "abc123",
     name: "GET /",
-    timestamp: 1710000000000000,   ← microseconds since epoch
-    duration: 62,                  ← microseconds
+    timestamp: 1710000000000000,   ← microssegundos desde epoch
+    duration: 62,                  ← microssegundos
     tags: { "http.status_code": "200" }
   }
 
-Collector zipkin receiver converts to:
+Collector zipkin receiver converte para:
   OTLP span {
     trace_id: bytes("abc123"),
     name: "GET /",
@@ -444,106 +444,106 @@ Collector zipkin receiver converts to:
   }
 ```
 
-### Auto-instrumentation (Stack 2: SDK injection)
+### Auto-instrumentação (Stack 2: injeção de SDK)
 
 ```
 NODE_OPTIONS=--require @opentelemetry/auto-instrumentations-node/register
 
-The SDK monkey-patches Node.js core modules at startup:
-  http.createServer  → wraps every request in a span
-  dns                → traces DNS lookups
-  net                → traces TCP connections
+O SDK faz monkey-patch nos módulos core do Node.js na inicialização:
+  http.createServer  → envolve cada requisição em um span
+  dns                → rastreia lookups DNS
+  net                → rastreia conexões TCP
 
-Each span is exported via OTLP/HTTP to the Collector.
-OTEL_SERVICE_NAME comes from the pod env var (set by app-chart values),
-not from the shared Instrumentation CR.
+Cada span é exportado via OTLP/HTTP para o Collector.
+OTEL_SERVICE_NAME vem da variável de ambiente no pod (definida pelos values do app-chart),
+não do Instrumentation CR compartilhado.
 ```
 
-### Deployment ordering (Terraform)
+### Ordem de deploy (Terraform)
 
 ```
 otel_operator
     │
-    ▼ (time_sleep 30s — wait for CRD + webhook registration)
-otel_platform  ← creates Instrumentation CR "nodejs"
+    ▼ (time_sleep 30s — aguarda registro do CRD + webhook)
+otel_platform  ← cria Instrumentation CR "nodejs"
     │
     ▼
-node_ws        ← pods scheduled, webhook fires, CR found, SDK injected ✓
+node_ws        ← pods agendados, webhook dispara, CR encontrado, SDK injetado ✓
 ```
 
 ---
 
-## Port Reference
+## Referência de Portas
 
-| Service          | Port | Protocol      | Purpose                               |
-|------------------|------|---------------|---------------------------------------|
-| OTel Collector   | 4317 | gRPC (OTLP)   | Receive from node-ws and OTLP apps    |
-| OTel Collector   | 4318 | HTTP (OTLP)   | Receive from node-ws (Operator stack) |
-| OTel Collector   | 9411 | HTTP (Zipkin) | Receive from fake-service             |
-| Tempo            | 4317 | gRPC (OTLP)   | Receive spans from Collector          |
-| Tempo            | 3100 | HTTP          | Query API used by Grafana             |
-| Prometheus       | 9090 | HTTP          | Receive metrics via remote write      |
-| Loki             | 3100 | HTTP          | Receive logs from Collector           |
-| fake-service     | 9090 | HTTP          | Application endpoints                 |
-| ALB (fake-svc)   | 80   | HTTP          | Public entry point for fake-service   |
-| ALB (node-ws)    | 80   | HTTP          | Public entry point for node-ws        |
+| Serviço | Porta | Protocolo | Finalidade |
+|---|---|---|---|
+| OTel Collector | 4317 | gRPC (OTLP) | Receber de node-ws e apps OTLP |
+| OTel Collector | 4318 | HTTP (OTLP) | Receber de node-ws (stack Operator) |
+| OTel Collector | 9411 | HTTP (Zipkin) | Receber do fake-service |
+| Tempo | 4317 | gRPC (OTLP) | Receber spans do Collector |
+| Tempo | 3100 | HTTP | API de consulta usada pelo Grafana |
+| Prometheus | 9090 | HTTP | Receber métricas via remote write |
+| Loki | 3100 | HTTP | Receber logs do Collector |
+| fake-service | 9090 | HTTP | Endpoints da aplicação |
+| ALB (fake-svc) | 80 | HTTP | Ponto de entrada público para o fake-service |
+| ALB (node-ws) | 80 | HTTP | Ponto de entrada público para o node-ws |
 
 ---
 
-## How to Test
+## Como Testar
 
 ### Stack 1 — fake-service
 
 ```bash
-# Get the ALB hostname
+# Obter o hostname do ALB
 kubectl get ingress otel-test-app -n default \
   -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
 
-# Generate traces
-ALB=<hostname-from-above>
+# Gerar traces
+ALB=<hostname-acima>
 for i in $(seq 1 20); do curl -s http://$ALB/ > /dev/null; done
 
-# View in Grafana: Explore → Tempo → Service Name: otel-test-app
+# Ver no Grafana: Explore → Tempo → Service Name: otel-test-app
 ```
 
 ### Stack 2 — node-ws
 
 ```bash
-# Get the ALB hostname
+# Obter o hostname do ALB
 kubectl get ingress node-ws -n default \
   -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
 
-# Generate traces
-ALB=<hostname-from-above>
+# Gerar traces
+ALB=<hostname-acima>
 for i in $(seq 1 20); do curl -s http://$ALB/ > /dev/null; done
 
-# View in Grafana: Explore → Tempo → Service Name: node-ws
+# Ver no Grafana: Explore → Tempo → Service Name: node-ws
 ```
 
-### Verify injection worked (Stack 2)
+### Verificar se a injeção funcionou (Stack 2)
 
 ```bash
-# Init container should be present
+# Init container deve estar presente
 kubectl describe pod -n default -l app.kubernetes.io/name=node-ws \
   | grep -A5 'Init Containers'
 
-# SDK env var should be set
+# Variável de ambiente do SDK deve estar definida
 kubectl exec -n default deploy/node-ws -- env | grep NODE_OPTIONS
 
-# Shared CR should exist in the namespace
+# CR compartilhado deve existir no namespace
 kubectl get instrumentation -n default
 ```
 
-### Verify the shared pipeline is healthy
+### Verificar se o pipeline compartilhado está saudável
 
 ```bash
-# Collector received and forwarded spans
+# Collector recebeu e repassou os spans
 kubectl logs -n monitoring -l app.kubernetes.io/name=opentelemetry-collector --tail=30
 
-# Tempo ingested them
+# Tempo os ingeriu
 kubectl logs -n monitoring -l app.kubernetes.io/name=tempo --tail=20
 
-# Operator is running and webhook is registered
+# Operator está rodando e webhook está registrado
 kubectl get pods -n opentelemetry-operator-system
 kubectl get mutatingwebhookconfiguration | grep opentelemetry
 ```

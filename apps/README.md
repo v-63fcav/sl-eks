@@ -1,38 +1,39 @@
-# EKS Study — Apps Layer
+# ps-sl — Camada de Aplicações
 
-This directory contains the Terraform configuration that installs all Kubernetes workloads onto the EKS cluster produced by the `infra/` layer. Everything is deployed via Helm releases or native Kubernetes resources. The stack forms a complete observability platform (metrics, logs, traces) plus sample applications.
+Este diretório contém a configuração Terraform que instala todos os workloads Kubernetes no cluster EKS produzido pela camada `infra/`. Tudo é implantado via Helm releases ou recursos nativos do Kubernetes. O stack forma uma plataforma completa de observabilidade (métricas, logs, traces) mais aplicações de exemplo instrumentadas.
 
-## Architecture overview
+## Visão Geral da Arquitetura
 
 ```
-                    ┌─────────────┐
-                    │   Grafana   │  ← single UI for all signals
-                    └──────┬──────┘
-           ┌───────────────┼───────────────┐
-           ▼               ▼               ▼
-      Prometheus          Loki           Tempo
-      (metrics)          (logs)         (traces)
-           ▲               ▲               ▲
-           │        ┌──────┘               │
-           │        │  Promtail            │
-           │        │  (DaemonSet)         │
-           └────────┴──────────────────────┘
-                       OTel Collector
-                (gateway — OTLP + Zipkin in, fan-out)
-                    ▲                  ▲
-          ┌─────────┘                  └─────────────┐
-    otel-test-app                               node-ws
-    Zipkin (fake-service)              OTel Operator auto-inject
-                                       (otel-platform CR)
+              ┌──────────────────────────────────────────┐
+              │                 Grafana                   │  ← interface única para todos os sinais
+              └───────────┬──────────────────────────────┘
+                          │
+           ┌──────────────┼──────────────┐
+           ▼              ▼              ▼
+      Prometheus         Loki          Tempo
+      (métricas)         (logs)       (traces)
+           ▲           ▲   ▲             ▲
+           │    Promtail   │             │
+           │    (DaemonSet)│             │
+           └───────────────┴─────────────┘
+                           ▲
+                    OTel Collector
+               (OTLP gRPC/HTTP + Zipkin)
+                    ▲             ▲
+           ┌────────┘             └────────┐
+           │                              │
+    otel-test-app                     node-ws
+  (Zipkin, fake-service)     (OTLP, OTel Operator SDK)
 ```
 
-Traffic from the internet reaches applications and Grafana through the **AWS Load Balancer Controller**, which provisions ALBs from `Ingress` resources.
+O tráfego da internet chega nas aplicações e no Grafana através do **AWS Load Balancer Controller**, que provisiona ALBs a partir de recursos `Ingress`.
 
-For a full trace data-flow diagram see [README-otel.md](README-otel.md).
+Para o diagrama completo do fluxo de dados de tracing, consulte [README-otel.md](README-otel.md).
 
 ---
 
-## Services
+## Serviços
 
 ### AWS Load Balancer Controller
 
@@ -42,9 +43,9 @@ For a full trace data-flow diagram see [README-otel.md](README-otel.md).
 | Namespace | `kube-system` |
 | Values | [values/values-alb-controller.yaml](values/values-alb-controller.yaml) |
 
-Watches `Ingress` resources with `ingressClassName: alb` and provisions AWS Application Load Balancers automatically. Uses IRSA (IAM Roles for Service Accounts) so no static credentials are needed — the IRSA role ARN is injected at deploy time from the `infra/` outputs.
+Observa recursos `Ingress` com `ingressClassName: alb` e provisiona AWS Application Load Balancers automaticamente. Usa IRSA (IAM Roles for Service Accounts) para que nenhuma credencial estática seja necessária — o ARN da role IRSA é injetado no momento do deploy a partir dos outputs de `infra/`.
 
-**How to use:** annotate any `Ingress` with `ingressClassName: alb`. The controller creates and manages the ALB lifecycle.
+**Como usar:** anote qualquer `Ingress` com `ingressClassName: alb`. O controller cria e gerencia o ciclo de vida do ALB.
 
 ---
 
@@ -56,19 +57,19 @@ Watches `Ingress` resources with `ingressClassName: alb` and provisions AWS Appl
 | Namespace | `monitoring` |
 | Values | [values/values-kube-prometheus-stack.yaml](values/values-kube-prometheus-stack.yaml) |
 
-Umbrella chart that installs:
+Chart guarda-chuva que instala:
 
-- **Prometheus** — scrapes metrics from all `ServiceMonitor` and `PodMonitor` resources cluster-wide. Retention: 15 days / 40 GiB. Storage: 50 GiB gp3.
-- **Grafana** — pre-loaded with EKS dashboards, Loki datasource, and Tempo datasource (with trace-to-log correlation). Exposed via an internet-facing ALB on port 80. Default credentials: `admin / changeme`.
-- **Alertmanager** — receives firing alerts from Prometheus. Storage: 10 GiB gp3.
-- **Prometheus Operator** — watches for `ServiceMonitor`/`PodMonitor` CRDs and configures Prometheus scrape targets dynamically.
-- **Node Exporter** — DaemonSet; exposes host-level CPU, memory, disk, and network metrics from each node.
-- **kube-state-metrics** — exposes Kubernetes object state metrics (pod restarts, deployment replicas, etc.).
+- **Prometheus** — coleta métricas de todos os recursos `ServiceMonitor` e `PodMonitor` no cluster. Retenção: 15 dias / 40 GiB. Storage: 50 GiB gp3.
+- **Grafana** — pré-carregado com dashboards EKS, datasource Loki e datasource Tempo (com correlação trace→log). Exposto via ALB voltado para internet na porta 80. Credenciais padrão: `admin / changeme`.
+- **Alertmanager** — recebe alertas disparados pelo Prometheus. Storage: 10 GiB gp3.
+- **Prometheus Operator** — observa CRDs `ServiceMonitor`/`PodMonitor` e configura os targets de scrape do Prometheus dinamicamente.
+- **Node Exporter** — DaemonSet; expõe métricas de nível de host (CPU, memória, disco, rede) de cada node.
+- **kube-state-metrics** — expõe métricas de estado de objetos Kubernetes (reinicializações de pod, réplicas de deployment, etc.).
 
-**How to use:**
-1. Get the Grafana ALB hostname: `kubectl get ingress -n monitoring`
-2. Open it in a browser and log in with `admin / changeme`.
-3. To add a scrape target for your own service, create a `ServiceMonitor` in any namespace — Prometheus discovers them everywhere (`serviceMonitorSelectorNilUsesHelmValues: false`).
+**Como usar:**
+1. Obtenha o hostname do ALB do Grafana: `kubectl get ingress -n monitoring`
+2. Abra no navegador e faça login com `admin / changeme`.
+3. Para adicionar um target de scrape para seu próprio serviço, crie um `ServiceMonitor` em qualquer namespace — o Prometheus os descobre em todo lugar (`serviceMonitorSelectorNilUsesHelmValues: false`).
 
 ---
 
@@ -80,17 +81,17 @@ Umbrella chart that installs:
 | Namespace | `monitoring` |
 | Values | [values/values-loki.yaml](values/values-loki.yaml) |
 
-Log aggregation backend. Deployed in **SingleBinary** mode (all components in one pod), suitable for dev/staging. Storage: 20 GiB gp3. Schema: TSDB v13.
+Backend de agregação de logs. Implantado no modo **SingleBinary** (todos os componentes em um pod), adequado para dev/staging. Storage: 20 GiB gp3. Schema: TSDB v13.
 
-Loki is a passive backend — it only stores logs that are pushed to it. Log collection is handled by **Promtail**.
+O Loki é um backend passivo — ele apenas armazena logs que são enviados para ele. A coleta de logs é feita pelo **Promtail**.
 
-**How to use:**
-1. Open Grafana → Explore → select the **Loki** datasource.
-2. Filter by namespace: `{namespace="default"}`
-3. Filter by pod: `{pod=~"node-ws.*"}` or `{pod=~"otel-test-app.*"}`
-4. Combine with a text search: `{namespace="monitoring"} |= "error"`
+**Como usar:**
+1. Abra Grafana → Explore → selecione o datasource **Loki**.
+2. Filtre por namespace: `{namespace="default"}`
+3. Filtre por pod: `{pod=~"node-ws.*"}` ou `{pod=~"otel-test-app.*"}`
+4. Combine com busca por texto: `{namespace="monitoring"} |= "error"`
 
-> For production, switch `deploymentMode` to `SimpleScalable` or `Distributed` and use S3 for object storage.
+> Para produção, mude `deploymentMode` para `SimpleScalable` ou `Distributed` e use S3 para object storage.
 
 ---
 
@@ -100,13 +101,13 @@ Loki is a passive backend — it only stores logs that are pushed to it. Log col
 |---|---|
 | Chart | `grafana/promtail` (latest) |
 | Namespace | `monitoring` |
-| Values | inline `set` in [helm.tf](helm.tf) |
+| Values | inline `set` em [helm.tf](helm.tf) |
 
-DaemonSet that runs on every node and tails all container logs from `/var/log/pods/`. Automatically attaches Kubernetes metadata labels (`namespace`, `pod`, `container`, `node`, `app`) as Loki stream labels, making every pod's logs queryable in Grafana without any per-app configuration.
+DaemonSet que roda em cada node e monitora todos os logs de contêiner em `/var/log/pods/`. Anexa automaticamente labels de metadados Kubernetes (`namespace`, `pod`, `container`, `node`, `app`) como labels de stream do Loki, tornando os logs de cada pod consultáveis no Grafana sem nenhuma configuração por aplicação.
 
-Logs are pushed to: `http://loki.monitoring.svc.cluster.local:3100/loki/api/v1/push`
+Logs são enviados para: `http://loki.monitoring.svc.cluster.local:3100/loki/api/v1/push`
 
-**How to use:** nothing to configure per application — all stdout/stderr from all namespaces is collected automatically the moment Promtail is running.
+**Como usar:** nenhuma configuração necessária por aplicação — todo stdout/stderr de todos os namespaces é coletado automaticamente assim que o Promtail está rodando.
 
 ---
 
@@ -118,16 +119,16 @@ Logs are pushed to: `http://loki.monitoring.svc.cluster.local:3100/loki/api/v1/p
 | Namespace | `monitoring` |
 | Values | [values/values-tempo.yaml](values/values-tempo.yaml) |
 
-Distributed tracing backend. Receives traces over **OTLP gRPC (:4317)** and **OTLP HTTP (:4318)**. Retention: 24 hours. Storage: 20 GiB gp3.
+Backend de tracing distribuído. Recebe traces via **OTLP gRPC (:4317)** e **OTLP HTTP (:4318)**. Retenção: 24 horas. Storage: 20 GiB gp3.
 
-Applications do **not** send traces directly to Tempo — they send to the **OTel Collector**, which forwards to Tempo. This decouples apps from the backend.
+As aplicações **não** enviam traces diretamente para o Tempo — elas enviam para o **OTel Collector**, que repassa para o Tempo. Isso desacopla as aplicações do backend.
 
-The Grafana Tempo datasource is pre-configured with **trace-to-logs correlation**: clicking a span automatically jumps to the matching Loki logs for that pod and time window.
+O datasource Tempo no Grafana é pré-configurado com **correlação trace→log**: clicar em um span pula automaticamente para os logs Loki correspondentes daquele pod e janela de tempo.
 
-**How to use:**
-1. Open Grafana → Explore → select the **Tempo** datasource.
-2. Search by service name, trace ID, or use the **Search** tab to filter by duration, status, or tags.
-3. Click any span to inspect attributes and jump to correlated Loki logs.
+**Como usar:**
+1. Abra Grafana → Explore → selecione o datasource **Tempo**.
+2. Busque por nome de serviço, trace ID ou use a aba **Search** para filtrar por duração, status ou tags.
+3. Clique em qualquer span para inspecionar atributos e saltar para os logs Loki correlacionados.
 
 ---
 
@@ -137,18 +138,18 @@ The Grafana Tempo datasource is pre-configured with **trace-to-logs correlation*
 |---|---|
 | Chart | `open-telemetry/opentelemetry-collector` v0.118.0 |
 | Namespace | `monitoring` |
-| Image | `otel/opentelemetry-collector-contrib` |
+| Imagem | `otel/opentelemetry-collector-contrib` |
 | Values | [values/values-otel-collector.yaml](values/values-otel-collector.yaml) |
 
-Gateway-mode `Deployment` that acts as the central telemetry hub. Accepts OTLP and Zipkin from applications and fans out to all three backends:
+`Deployment` no modo gateway que atua como o hub central de telemetria. Aceita OTLP e Zipkin das aplicações e distribui para os três backends:
 
-| Signal | Receivers | Exporter | Backend |
+| Sinal | Receivers | Exporter | Backend |
 |---|---|---|---|
 | Traces | OTLP gRPC/HTTP, Zipkin | `otlp/tempo` | Tempo `:4317` |
-| Metrics | OTLP gRPC/HTTP | `prometheusremotewrite` | Prometheus `:9090` |
+| Métricas | OTLP gRPC/HTTP | `prometheusremotewrite` | Prometheus `:9090` |
 | Logs | OTLP gRPC/HTTP | `loki` | Loki `:3100` |
 
-Processors in every pipeline: `memory_limiter` (75% limit, 20% spike cap) → `batch` (5s timeout, 1000 items).
+Processadores em cada pipeline: `memory_limiter` (limite 75%, cap de spike 20%) → `batch` (timeout 5s, 1000 itens).
 
 ```
 OTLP gRPC:  opentelemetry-collector.monitoring.svc.cluster.local:4317
@@ -166,19 +167,19 @@ Zipkin:     opentelemetry-collector.monitoring.svc.cluster.local:9411
 | Namespace | `opentelemetry-operator-system` |
 | Values | [values/values-otel-operator.yaml](values/values-otel-operator.yaml) |
 
-Kubernetes operator that enables **zero-code auto-instrumentation** via a mutating admission webhook. When a pod is created with an inject annotation, the operator patches its spec to add an init container that downloads the language-specific OTel SDK and sets `NODE_OPTIONS` (or equivalent) so the SDK loads automatically at runtime.
+Operator Kubernetes que habilita **auto-instrumentação zero-code** via webhook de admissão mutante. Quando um pod é criado com uma anotação de injeção, o operator faz o patch na spec para adicionar um init container que baixa o OTel SDK específico da linguagem e define `NODE_OPTIONS` (ou equivalente) para que o SDK carregue automaticamente em runtime.
 
-Supported languages: Node.js, Java, Python, Go, .NET.
+Linguagens suportadas: Node.js, Java, Python, Go, .NET.
 
-No cert-manager required — the operator generates its own self-signed webhook certificate via `autoGenerateCert`.
+Não requer cert-manager — o operator gera seu próprio certificado de webhook autoassinado via `autoGenerateCert`.
 
-**How to instrument an app:**
-1. Ensure a matching `Instrumentation` CR exists in the same namespace (see otel-platform below).
-2. Add the annotation to the pod:
+**Como instrumentar uma aplicação:**
+1. Garanta que um `Instrumentation` CR correspondente exista no mesmo namespace (veja otel-platform abaixo).
+2. Adicione a anotação no pod:
    ```yaml
    instrumentation.opentelemetry.io/inject-nodejs: "nodejs"
    ```
-3. Set `OTEL_SERVICE_NAME` as a pod env var — this is app-specific and is not part of the shared CR.
+3. Defina `OTEL_SERVICE_NAME` como variável de ambiente no pod — isso é específico da aplicação e não faz parte do CR compartilhado.
 
 ---
 
@@ -190,13 +191,13 @@ No cert-manager required — the operator generates its own self-signed webhook 
 | Namespace | `default` |
 | Values | [otel-platform-chart/values.yaml](otel-platform-chart/values.yaml) |
 
-Deploys namespace-wide `Instrumentation` CRs shared by all applications in the `default` namespace. Decoupled from individual app charts so that adding a new app requires no changes to the platform layer.
+Implanta `Instrumentation` CRs compartilhados por todas as aplicações no namespace `default`. Desacoplado dos charts individuais das aplicações para que adicionar uma nova app não exija mudanças na camada de plataforma.
 
-| CR name | Language | Referenced by |
+| Nome do CR | Linguagem | Referenciado por |
 |---|---|---|
-| `nodejs` | Node.js | `inject-nodejs: "nodejs"` annotation |
+| `nodejs` | Node.js | anotação `inject-nodejs: "nodejs"` |
 
-`OTEL_SERVICE_NAME` is **not** set in the CR — each app sets it as a pod env var, giving every service a distinct name in Tempo without needing a separate CR per app.
+`OTEL_SERVICE_NAME` **não** é definido no CR — cada aplicação o define como variável de ambiente no pod, dando a cada serviço um nome distinto no Tempo sem precisar de um CR separado por app.
 
 ---
 
@@ -208,13 +209,13 @@ Deploys namespace-wide `Instrumentation` CRs shared by all applications in the `
 | Namespace | `default` |
 | Values | [app-chart/values.yaml](app-chart/values.yaml) |
 
-Minimal Node.js (`node:20-alpine`) web server auto-instrumented by the OTel Operator. Exposed via an internet-facing ALB.
+Servidor web Node.js mínimo (`node:20-alpine`) auto-instrumentado pelo OTel Operator. Exposto via ALB voltado para internet.
 
-- 1 replica, HTTP on port 3000
-- Resource requests: 100m CPU / 128Mi memory; limits: 500m CPU / 256Mi memory
-- Traces visible in Grafana → Tempo → `service.name = node-ws`
+- 1 réplica, HTTP na porta 3000
+- Resource requests: 100m CPU / 128Mi memória; limits: 500m CPU / 256Mi memória
+- Traces visíveis em Grafana → Tempo → `service.name = node-ws`
 
-The `app-chart` is app-agnostic — the app name, service name, and image are all driven from `values.yaml`. To deploy a second Node.js app, copy the `helm_release` block in [helm.tf](helm.tf) and override `nameOverride` and `otel.serviceName`.
+O `app-chart` é agnóstico à aplicação — o nome da app, nome do serviço e imagem são todos configurados via `values.yaml`. Para implantar uma segunda app Node.js, copie o bloco `helm_release` em [helm.tf](helm.tf) e sobrescreva `nameOverride` e `otel.serviceName`.
 
 ---
 
@@ -226,39 +227,39 @@ The `app-chart` is app-agnostic — the app name, service name, and image are al
 | Namespace | `default` |
 | Values | [otel-test-app-chart/values.yaml](otel-test-app-chart/values.yaml) |
 
-Pre-built Go HTTP service (`nicholasjackson/fake-service:v0.26.2`) used to generate realistic traces without writing application code. Ships with built-in Zipkin tracing — spans are sent to the OTel Collector on `:9411`, which translates them to OTLP and forwards to Tempo.
+Serviço HTTP Go pré-construído (`nicholasjackson/fake-service:v0.26.2`) usado para gerar traces realistas sem escrever código de aplicação. Possui tracing Zipkin embutido — os spans são enviados ao OTel Collector na porta `:9411`, que os converte para OTLP e repassa ao Tempo.
 
-- Exposed via internet-facing ALB on port 80
-- Traces visible in Grafana → Tempo → `service.name = otel-test-app`
-- Endpoints: `/` (generates a trace), `/health` (ALB health check)
+- Exposto via ALB voltado para internet na porta 80
+- Traces visíveis em Grafana → Tempo → `service.name = otel-test-app`
+- Endpoints: `/` (gera um trace), `/health` (health check do ALB)
 
 ---
 
-## Infrastructure dependencies
+## Dependências de Infraestrutura
 
-| Resource | File | Purpose |
+| Recurso | Arquivo | Finalidade |
 |---|---|---|
-| `kubernetes_storage_class_v1.gp3` | [k8s-resources.tf](k8s-resources.tf) | gp3 EBS StorageClass (encrypted, `Retain`, `WaitForFirstConsumer`) used by all PVCs |
+| `kubernetes_storage_class_v1.gp3` | [k8s-resources.tf](k8s-resources.tf) | StorageClass EBS gp3 (criptografada, `Retain`, `WaitForFirstConsumer`) usada por todos os PVCs |
 
-All Helm releases that create PVCs depend on this StorageClass being present first.
+Todos os Helm releases que criam PVCs dependem desta StorageClass estar presente primeiro.
 
 ---
 
-## Deployment
+## Deploy
 
 ```bash
-# From the infra/ directory first
+# Primeiro, a partir do diretório infra/
 cd infra && terraform apply
 
-# Then deploy apps
+# Em seguida, implante os apps
 cd ../apps
-terraform init   # needed after adding the time provider
+terraform init   # necessário após adicionar o provider time
 terraform apply
 ```
 
-After `terraform apply`:
-1. `kubectl get ingress -n default` — get ALB URLs for node-ws and otel-test-app
-2. `kubectl get ingress -n monitoring` — get the Grafana ALB URL
-3. Log into Grafana (`admin / changeme`) and verify all three datasources (Prometheus, Loki, Tempo) show green
-4. Check Prometheus targets: Grafana → Explore → Prometheus → `up` — all targets should be `1`
-5. Send requests to the app ALBs to generate traces, then search in Grafana → Explore → Tempo
+Após o `terraform apply`:
+1. `kubectl get ingress -n default` — obtenha as URLs dos ALBs de node-ws e otel-test-app
+2. `kubectl get ingress -n monitoring` — obtenha a URL do ALB do Grafana
+3. Faça login no Grafana (`admin / changeme`) e verifique se os três datasources (Prometheus, Loki, Tempo) estão verdes
+4. Verifique os targets do Prometheus: Grafana → Explore → Prometheus → `up` — todos os targets devem ser `1`
+5. Envie requisições para os ALBs das aplicações para gerar traces, depois pesquise em Grafana → Explore → Tempo

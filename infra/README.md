@@ -1,21 +1,21 @@
-# EKS Study — Infrastructure Layer
+# ps-sl — Camada de Infraestrutura
 
-This directory contains all Terraform code that provisions the AWS foundation the cluster runs on. It must be applied **before** the `apps/` layer. Everything here is stateful cloud infrastructure — take care with destroys.
+Este diretório contém todo o código Terraform que provisiona a fundação AWS sobre a qual o cluster é executado. Deve ser aplicado **antes** da camada `apps/`. Tudo aqui é infraestrutura cloud com estado — tome cuidado com destruições.
 
-## What gets created
+## O que é criado
 
 ```
-AWS Account
+Conta AWS
 └── VPC (10.0.0.0/16)
-    ├── Public subnets  [10.0.4.0/24, 10.0.5.0/24]  — ALB lives here
+    ├── Subnets públicas   [10.0.4.0/24, 10.0.5.0/24]  — ALB fica aqui
     │   └── Internet Gateway
-    ├── Private subnets [10.0.1.0/24, 10.0.2.0/24]  — nodes live here
-    │   └── NAT Gateway (single, in first AZ)
-    └── EKS Cluster (ps-sl-eks-<random8>)
-        ├── Managed Control Plane
-        ├── Managed Node Group  (t3.medium × 2, scales to 6)
+    ├── Subnets privadas   [10.0.1.0/24, 10.0.2.0/24]  — nodes ficam aqui
+    │   └── NAT Gateway (único, na primeira AZ)
+    └── Cluster EKS (ps-sl-eks-<random8>)
+        ├── Control Plane Gerenciado
+        ├── Node Group Gerenciado  (t3.medium × 2, escala até 6)
         ├── OIDC Identity Provider
-        ├── EBS CSI Driver addon
+        ├── Addon EBS CSI Driver
         └── IAM
             ├── EBS CSI Driver Role   (IRSA)
             └── ALB Controller Role   (IRSA)
@@ -23,141 +23,141 @@ AWS Account
 
 ---
 
-## Resources
+## Recursos
 
 ### VPC — [vpc.tf](vpc.tf)
 
-| Attribute | Value |
+| Atributo | Valor |
 |---|---|
-| Module | `terraform-aws-modules/vpc/aws` v5.7.0 |
-| CIDR | `10.0.0.0/16` (configurable via `var.vpc_cidr`) |
-| Public subnets | `10.0.4.0/24`, `10.0.5.0/24` |
-| Private subnets | `10.0.1.0/24`, `10.0.2.0/24` |
-| NAT Gateway | Single (cost-optimised; single point of failure for outbound) |
-| DNS hostnames | Enabled — required for EKS and ALB |
+| Módulo | `terraform-aws-modules/vpc/aws` v5.7.0 |
+| CIDR | `10.0.0.0/16` (configurável via `var.vpc_cidr`) |
+| Subnets públicas | `10.0.4.0/24`, `10.0.5.0/24` |
+| Subnets privadas | `10.0.1.0/24`, `10.0.2.0/24` |
+| NAT Gateway | Único (otimizado para custo; ponto único de falha para saída) |
+| DNS hostnames | Habilitado — obrigatório para EKS e ALB |
 
-**Subnet tagging** is critical for AWS Load Balancer Controller to discover where to place ALBs:
+**A tagueação das subnets** é fundamental para que o AWS Load Balancer Controller descubra onde posicionar os ALBs:
 
-- Public subnets: `kubernetes.io/role/elb = 1` → internet-facing ALBs
-- Private subnets: `kubernetes.io/role/internal-elb = 1` → internal ALBs
-- Both: `kubernetes.io/cluster/<name> = shared` → cluster ownership
+- Subnets públicas: `kubernetes.io/role/elb = 1` → ALBs voltados para internet
+- Subnets privadas: `kubernetes.io/role/internal-elb = 1` → ALBs internos
+- Ambas: `kubernetes.io/cluster/<nome> = shared` → propriedade do cluster
 
-The cluster name includes a random 8-character suffix (`ps-sl-eks-<suffix>`) generated at apply time to avoid naming collisions across environments.
+O nome do cluster inclui um sufixo aleatório de 8 caracteres (`ps-sl-eks-<sufixo>`) gerado no momento do apply para evitar colisões de nomes entre ambientes.
 
 ---
 
 ### Security Group — [sg.tf](sg.tf)
 
-**`all_worker_mgmt`** — attached to all worker nodes via `eks_managed_node_group_defaults`.
+**`all_worker_mgmt`** — anexado a todos os worker nodes via `eks_managed_node_group_defaults`.
 
-| Direction | Protocol | Ports | Source/Dest |
+| Direção | Protocolo | Portas | Origem/Destino |
 |---|---|---|---|
-| Ingress | All | All | `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16` |
-| Egress | All | All | `0.0.0.0/0` |
+| Ingress | Todos | Todos | `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16` |
+| Egress | Todos | Todos | `0.0.0.0/0` |
 
-Ingress allows all traffic from the three private RFC ranges — this covers VPC-internal traffic (pod-to-pod, control-plane-to-node) as well as any VPN or peered network in the standard private ranges. Egress is fully open so nodes can pull container images and reach AWS APIs.
+O ingress libera todo o tráfego dos três ranges RFC privados — isso cobre tráfego interno à VPC (pod-to-pod, control-plane-to-node) e qualquer VPN ou rede pareada nos ranges privados padrão. O egress é totalmente aberto para que os nodes possam baixar imagens de contêiner e acessar APIs da AWS.
 
-> Note: The EKS module also creates its own cluster security group automatically. This SG is supplementary, added on top.
+> Nota: O módulo EKS também cria automaticamente seu próprio security group de cluster. Este SG é suplementar, adicionado por cima.
 
 ---
 
-### EKS Cluster — [eks-cluster.tf](eks-cluster.tf)
+### Cluster EKS — [eks-cluster.tf](eks-cluster.tf)
 
-**Module**: `terraform-aws-modules/eks/aws` v20.8.4
+**Módulo**: `terraform-aws-modules/eks/aws` v20.8.4
 
-| Attribute | Value |
+| Atributo | Valor |
 |---|---|
-| Kubernetes version | 1.32 |
-| Region | `us-east-2` |
-| Control plane access | Public + Private endpoints |
-| IRSA | Enabled (`enable_irsa = true`) |
-| Node placement | Private subnets only |
+| Versão Kubernetes | 1.32 |
+| Região | `us-east-2` |
+| Acesso ao control plane | Endpoints público + privado |
+| IRSA | Habilitado (`enable_irsa = true`) |
+| Posicionamento dos nodes | Apenas subnets privadas |
 
-#### Managed Node Group
+#### Node Group Gerenciado
 
-| Attribute | Value |
+| Atributo | Valor |
 |---|---|
-| Instance type | `t3.medium` (2 vCPU, 4 GiB RAM) |
+| Tipo de instância | `t3.medium` (2 vCPU, 4 GiB RAM) |
 | AMI | `AL2_x86_64` (Amazon Linux 2) |
-| Min / Desired / Max | 2 / 2 / 6 |
-| Scaling | Manual only — no cluster autoscaler configured |
+| Min / Desejado / Máx | 2 / 2 / 6 |
+| Escalonamento | Manual — nenhum cluster autoscaler configurado |
 
-Nodes run in private subnets. Outbound internet access goes through the NAT Gateway for image pulls and AWS API calls. The control plane endpoints are both public (for `kubectl` from outside the VPC) and private (for node-to-plane communication within the VPC).
+Os nodes rodam em subnets privadas. O acesso à internet para saída passa pelo NAT Gateway para pulls de imagem e chamadas à API da AWS. Os endpoints do control plane são tanto públicos (para `kubectl` de fora da VPC) quanto privados (para comunicação node-to-plane dentro da VPC).
 
-#### EKS Admin Access
+#### Acesso Admin ao EKS
 
-`var.eks_admin_principal_arns` is a list of IAM principal ARNs that receive `AmazonEKSClusterAdminPolicy` scoped to the cluster. This is done via `aws_eks_access_entry` + `aws_eks_access_policy_association`, which uses the EKS Access Entries API (Kubernetes 1.23+) instead of the legacy `aws-auth` ConfigMap. Add your IAM user or role ARN here to get `kubectl` access without manual steps.
+`var.eks_admin_principal_arns` é uma lista de ARNs de principais IAM que recebem `AmazonEKSClusterAdminPolicy` com escopo no cluster. Isso é feito via `aws_eks_access_entry` + `aws_eks_access_policy_association`, que usa a API de Access Entries do EKS (Kubernetes 1.23+) em vez do `aws-auth` ConfigMap legado. Adicione o ARN do seu usuário ou role IAM aqui para obter acesso `kubectl` sem passos manuais.
 
-#### EBS CSI Driver Addon
+#### Addon EBS CSI Driver
 
-The `aws-ebs-csi-driver` addon (v1.29.1-eksbuild.1) is installed as a managed EKS addon. It enables dynamic EBS volume provisioning for `PersistentVolumeClaims`. The addon runs with the `ebs_csi_driver_role` IRSA role (see IAM section). Without this addon, PVCs using the `ebs.csi.aws.com` provisioner would stay `Pending`.
+O addon `aws-ebs-csi-driver` (v1.29.1-eksbuild.1) é instalado como addon gerenciado do EKS. Ele habilita o provisionamento dinâmico de volumes EBS para `PersistentVolumeClaims`. O addon roda com a IRSA role `ebs_csi_driver_role` (veja a seção IAM). Sem este addon, PVCs usando o provisioner `ebs.csi.aws.com` ficariam em estado `Pending`.
 
-> The `apps/` StorageClass uses the **in-tree** `kubernetes.io/aws-ebs` provisioner instead of `ebs.csi.aws.com` to avoid a known issue where PVCs can hang when the CSI driver pod is not yet scheduled. Both the addon and the in-tree driver are available — the in-tree one is used for reliability.
+> A StorageClass de `apps/` usa o provisioner **in-tree** `kubernetes.io/aws-ebs` em vez de `ebs.csi.aws.com` para evitar um problema conhecido onde PVCs podem travar quando o pod do CSI driver ainda não foi agendado. Tanto o addon quanto o driver in-tree estão disponíveis — o in-tree é usado por confiabilidade.
 
 ---
 
 ### IAM — [iam.tf](iam.tf)
 
-Both IAM roles use **IRSA (IAM Roles for Service Accounts)** — no static credentials, no instance-profile-wide permissions. See the [OIDC explanation in the main README](../README.md) for how the token exchange works.
+Ambas as roles IAM usam **IRSA (IAM Roles for Service Accounts)** — sem credenciais estáticas, sem permissões amplas de instance profile.
 
 #### EBS CSI Driver Role
 
-| Attribute | Value |
+| Atributo | Valor |
 |---|---|
-| Role name | `AmazonEKS_EBS_CSI_DriverRole` |
+| Nome da role | `AmazonEKS_EBS_CSI_DriverRole` |
 | Policy | AWS managed `AmazonEBSCSIDriverPolicy` |
-| Trust scope | `kube-system:ebs-csi-controller-sa` only |
-| Mechanism | `sts:AssumeRoleWithWebIdentity` via OIDC |
+| Escopo de confiança | Apenas `kube-system:ebs-csi-controller-sa` |
+| Mecanismo | `sts:AssumeRoleWithWebIdentity` via OIDC |
 
-Allows the EBS CSI controller pod (and only that pod) to call `ec2:CreateVolume`, `ec2:AttachVolume`, `ec2:DeleteVolume`, etc. on behalf of PVC operations.
+Permite que o pod do EBS CSI controller (e somente ele) chame `ec2:CreateVolume`, `ec2:AttachVolume`, `ec2:DeleteVolume`, etc. em nome de operações de PVC.
 
 #### ALB Controller Role
 
-| Attribute | Value |
+| Atributo | Valor |
 |---|---|
-| Role name | `eks-alb-controller` |
-| Module | `terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks` v5.x |
-| Policy | Custom policy from `iam_policy.json` (AWS-prescribed ALB controller policy) |
-| Trust scope | `kube-system:aws-load-balancer-controller` only |
+| Nome da role | `eks-alb-controller` |
+| Módulo | `terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks` v5.x |
+| Policy | Policy customizada de `iam_policy.json` (policy ALB controller prescrita pela AWS) |
+| Escopo de confiança | Apenas `kube-system:aws-load-balancer-controller` |
 
-Allows the ALB controller pod to create and manage Application Load Balancers, target groups, listeners, and security group rules in response to Kubernetes `Ingress` resources. The role ARN is passed as a Terraform output to the `apps/` layer, which annotates the controller's service account with it.
+Permite que o pod do ALB controller crie e gerencie Application Load Balancers, target groups, listeners e regras de security group em resposta a recursos `Ingress` do Kubernetes. O ARN da role é passado como output Terraform para a camada `apps/`, que anota a service account do controller com ele.
 
 ---
 
 ### Outputs — [outputs.tf](outputs.tf)
 
-The `apps/` layer reads these outputs via Terraform remote state:
+A camada `apps/` lê estes outputs via Terraform remote state:
 
-| Output | Used by |
+| Output | Usado por |
 |---|---|
-| `cluster_name` | `apps/` providers (helm, kubernetes) |
-| `cluster_endpoint` | `apps/` providers |
-| `cluster_ca` | `apps/` providers |
-| `oidc_provider_arn` | Not consumed directly by apps (used within infra for IRSA) |
-| `alb_irsa_role` | Injected into ALB controller values as service account annotation |
-| `region` | `apps/` providers |
+| `cluster_name` | providers de `apps/` (helm, kubernetes) |
+| `cluster_endpoint` | providers de `apps/` |
+| `cluster_ca` | providers de `apps/` |
+| `oidc_provider_arn` | Não consumido diretamente por apps (usado dentro de infra para IRSA) |
+| `alb_irsa_role` | Injetado nos values do ALB controller como anotação de service account |
+| `region` | providers de `apps/` |
 
 ---
 
-### Variables — [variables.tf](variables.tf)
+### Variáveis — [variables.tf](variables.tf)
 
-| Variable | Default | Description |
+| Variável | Padrão | Descrição |
 |---|---|---|
-| `kubernetes_version` | `1.32` | EKS control plane version |
-| `vpc_cidr` | `10.0.0.0/16` | VPC address space |
-| `aws_region` | `us-east-2` | Target AWS region |
-| `eks_admin_principal_arns` | Two ARNs (Felipe + root) | IAM principals granted cluster admin |
+| `kubernetes_version` | `1.32` | Versão do control plane do EKS |
+| `vpc_cidr` | `10.0.0.0/16` | Espaço de endereços da VPC |
+| `aws_region` | `us-east-2` | Região AWS de destino |
+| `eks_admin_principal_arns` | Dois ARNs (Felipe + root) | Principais IAM com acesso admin ao cluster |
 
-To override, create a `terraform.tfvars` file or pass `-var` flags:
+Para sobrescrever, crie um arquivo `terraform.tfvars` ou passe flags `-var`:
 ```hcl
 # terraform.tfvars
 aws_region               = "us-west-2"
-eks_admin_principal_arns = ["arn:aws:iam::123456789012:user/you"]
+eks_admin_principal_arns = ["arn:aws:iam::123456789012:user/voce"]
 ```
 
 ---
 
-## Deployment
+## Deploy
 
 ```bash
 cd infra
@@ -166,19 +166,19 @@ terraform plan
 terraform apply
 ```
 
-After apply, configure `kubectl`:
+Após o apply, configure o `kubectl`:
 ```bash
 aws eks update-kubeconfig \
   --region us-east-2 \
   --name $(terraform output -raw cluster_name)
 ```
 
-Verify nodes are ready:
+Verifique se os nodes estão prontos:
 ```bash
 kubectl get nodes
 ```
 
-Then proceed to `apps/`:
+Em seguida, prossiga para `apps/`:
 ```bash
 cd ../apps
 terraform init
@@ -187,12 +187,12 @@ terraform apply
 
 ---
 
-## Tear down
+## Destruição
 
-Destroy apps first (Helm releases create AWS resources like ALBs that must be cleaned up before the VPC can be deleted):
+Destrua os apps primeiro (os Helm releases criam recursos AWS como ALBs que precisam ser limpos antes que a VPC possa ser deletada):
 ```bash
 cd apps  && terraform destroy
 cd ../infra && terraform destroy
 ```
 
-Skipping the apps destroy first will leave orphaned ALBs and ENIs that block VPC deletion.
+Pular a destruição dos apps primeiro deixará ALBs e ENIs órfãos que bloqueiam a exclusão da VPC.
