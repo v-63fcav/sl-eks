@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main
+    paths-ignore:
+      - '**/*.md'
 
 # Um único apply por vez. Compartilhado com tf-destroy.yml para que deploy e
 # destroy nunca rodem simultaneamente no mesmo branch.
