@@ -6,7 +6,7 @@ Os outputs desta camada são lidos por `infra-resources` via remote state do S3 
 
 ---
 
-## Índice
+## 📋 Índice
 
 1. [Visão Geral da Arquitetura](#visão-geral-da-arquitetura)
 2. [Recursos](#recursos)
@@ -26,7 +26,7 @@ Os outputs desta camada são lidos por `infra-resources` via remote state do S3 
 
 ---
 
-## Visão Geral da Arquitetura
+## 🏗️ Visão Geral da Arquitetura
 
 ```
 ┌───────────────────────────────────────────────────────────────────────────────┐
@@ -63,11 +63,11 @@ Os outputs desta camada são lidos por `infra-resources` via remote state do S3 
 
 ---
 
-## Recursos
+## 📦 Recursos
 
-### VPC — `vpc.tf`
+### 🌐 VPC — `vpc.tf`
 
-| | |
+| Parâmetro | Valor |
 |---|---|
 | Módulo | `terraform-aws-modules/vpc/aws` v5.7.0 |
 | CIDR | `10.0.0.0/16` |
@@ -92,13 +92,13 @@ Os outputs desta camada são lidos por `infra-resources` via remote state do S3 
 
 **VPC Flow Logs**
 ```
-Tipo:   ALL (aceito + rejeitado)
-Destino: CloudWatch Logs (/aws/vpc/...)
+Tipo:     ALL (aceito + rejeitado)
+Destino:  CloudWatch Logs (/aws/vpc/...)
 Retenção: 30 dias
 IAM role: criada automaticamente pelo módulo
 ```
 
-### VPC Endpoints — `vpc.tf`
+### 🔌 VPC Endpoints — `vpc.tf`
 
 Mantêm o tráfego de bootstrapping dos nodes, pulls de imagem ECR e troca de tokens IRSA dentro da rede AWS — sem cobranças de NAT Gateway e sem latência de ida e volta para a internet.
 
@@ -111,14 +111,14 @@ Permite HTTPS (443/TCP) de qualquer IP dentro do CIDR da VPC (`10.0.0.0/16`) par
 | ECR API | Interface | Autenticação e metadados do registro ECR |
 | ECR DKR | Interface | Pull de layers de imagem Docker |
 | STS | Interface | `AssumeRoleWithWebIdentity` — troca de tokens OIDC por credenciais AWS para IRSA |
-| EC2 | Interface | vpc-cni chama `AssignPrivateIpAddresses` e `UnassignPrivateIpAddresses` para alocar blocos `/28` nas ENIs durante scale-up de nodes |
+| EC2 | Interface | vpc-cni chama `AssignPrivateIpAddresses` para alocar blocos `/28` nas ENIs durante scale-up de nodes |
 
 **Por que o endpoint EC2?**
 Com prefix delegation, o vpc-cni faz chamadas EC2 frequentes durante scale-up para atribuir novos prefixos `/28` às ENIs dos nodes. Sem o endpoint, cada chamada passa pelo NAT Gateway (latência + custo). Em escala, isso pode atrasar o provisionamento de pods.
 
-### EKS — `eks.tf`
+### ☁️ EKS — `eks.tf`
 
-| | |
+| Parâmetro | Valor |
 |---|---|
 | Módulo | `terraform-aws-modules/eks/aws` v20.8.4 |
 | Versão Kubernetes | `1.34` |
@@ -141,20 +141,20 @@ WARM_PREFIX_TARGET       = "1"      # mantém 1 bloco /28 reservado por node par
 
 ```hcl
 # Para cada ARN em eks_admin_principal_arns:
-aws_eks_access_entry  → cria a entrada de autenticação (principal_arn → tipo STANDARD)
+aws_eks_access_entry              → cria a entrada de autenticação (principal_arn → tipo STANDARD)
 aws_eks_access_policy_association → associa AmazonEKSClusterAdminPolicy com escopo "cluster"
 ```
 
 As entradas são criadas no mesmo job do cluster para que as camadas seguintes (`infra-resources`, `apps`) já possam autenticar via provider Kubernetes/Helm.
 
-### IAM — `iam.tf`
+### 🔒 IAM — `iam.tf`
 
 **Role dos worker nodes**
 
 ```
 aws_iam_role.node  →  ec2.amazonaws.com pode assumir esta role
-  ├── AmazonEKSWorkerNodePolicy        # kubelet registra node, descreve EC2
-  ├── AmazonEKS_CNI_Policy             # vpc-cni gerencia ENIs e prefixos /28
+  ├── AmazonEKSWorkerNodePolicy           # kubelet registra node, descreve EC2
+  ├── AmazonEKS_CNI_Policy               # vpc-cni gerencia ENIs e prefixos /28
   └── AmazonEC2ContainerRegistryReadOnly  # pull de imagens do ECR
 ```
 
@@ -175,7 +175,7 @@ module.alb_irsa_role (terraform-aws-modules/iam ~5.0)
                  └── shield:* (DDoS protection)
 ```
 
-### Security Group — `sg.tf`
+### 🛡️ Security Group — `sg.tf`
 
 Security group adicional (`all_worker_management`) que é referenciado pelo launch template em `infra-resources`. Não substitui o security group gerenciado pelo módulo EKS — complementa-o.
 
@@ -188,9 +188,9 @@ Security group adicional (`all_worker_management`) que é referenciado pelo laun
 
 ---
 
-## Detalhamento Técnico
+## 🔬 Detalhamento Técnico
 
-### Design de Rede
+### 🌐 Design de Rede
 
 ```
 CIDR da VPC:  10.0.0.0/16  (65.536 endereços)
@@ -206,11 +206,11 @@ Band privada   — 10.0.32.0/19+ (sequencial, incremento de 32 no 3º octeto)
 **Por que `/19` e não `/24` nas subnets privadas?**
 Com prefix delegation, o vpc-cni reserva um bloco `/28` (16 IPs) por node em vez de IPs individuais. Um node `t3.medium` pode ter no máximo 3 ENIs × 2 prefixos = 6 blocos `/28` = 96 IPs de pod. Um `/24` comporta apenas 16 blocos `/28` — suficiente para 8 nodes antes de esgotar. Um `/19` comporta 512 blocos `/28` — suficiente para ~256 nodes.
 
-### Prefix Delegation
+### 📡 Prefix Delegation
 
 Prefix delegation é diferente de custom networking:
 
-| | Custom Networking | Prefix Delegation |
+| Critério | Custom Networking | Prefix Delegation |
 |---|---|---|
 | Subnets de pods | Separadas das subnets de nodes (`intra`) | Mesma subnet dos nodes |
 | IP do node no cluster | 1 IP (ENI primário) | 1 IP (ENI primário) |
@@ -228,7 +228,7 @@ O primeiro `/20` de cada subnet privada é reservado exclusivamente para blocos 
 10.0.96.0/19  →  reserva  10.0.96.0/20  para prefixos /28
 ```
 
-Sem essa reserva, IPs secundários atribuídos individualmente (por outros recursos ou por nodes em fase de warm-up) podem fragmentar o espaço de endereçamento, causando falhas de alocação de prefixo com o erro `InsufficientCidrBlocks` quando um novo node inicializa.
+Sem essa reserva, IPs secundários atribuídos individualmente podem fragmentar o espaço de endereçamento, causando falhas de alocação de prefixo com o erro `InsufficientCidrBlocks` quando um novo node inicializa.
 
 **Fluxo de alocação de IPs**
 
@@ -251,12 +251,12 @@ vpc-cni adiciona rota local no node para o /28
 Pod agendado recebe IP do /28 local (sem nova chamada EC2)
 ```
 
-### EKS Access Entries
+### 🔑 EKS Access Entries
 
 ```
-IDs usuário:  eks_admin_principal_arns (var)
-                ├── arn:aws:iam::<account>:user/Felipe_Cavichiolli
-                └── arn:aws:iam::<account>:root
+eks_admin_principal_arns (var)
+  ├── arn:aws:iam::<account>:user/Felipe_Cavichiolli
+  └── arn:aws:iam::<account>:root
       │
       ▼
 aws_eks_access_entry  (type = STANDARD)
@@ -273,7 +273,7 @@ O `aws-auth` ConfigMap é um recurso Kubernetes gerenciado manualmente. Uma edi�
 
 ---
 
-## Variáveis
+## 📝 Variáveis
 
 | Variável | Tipo | Padrão | Descrição |
 |---|---|---|---|
@@ -284,7 +284,7 @@ O `aws-auth` ConfigMap é um recurso Kubernetes gerenciado manualmente. Uma edi�
 
 ---
 
-## Outputs
+## 📤 Outputs
 
 | Output | Tipo | Usado por | Descrição |
 |---|---|---|---|
@@ -304,7 +304,7 @@ O `aws-auth` ConfigMap é um recurso Kubernetes gerenciado manualmente. Uma edi�
 
 ---
 
-## Como Verificar
+## ✅ Como Verificar
 
 ```bash
 # Confirmar que o cluster está ativo
@@ -341,7 +341,7 @@ aws eks describe-addon \
 
 ---
 
-## Deploy
+## 🚦 Deploy
 
 ```bash
 cd infra-cluster

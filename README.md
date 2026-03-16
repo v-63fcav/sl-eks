@@ -8,7 +8,7 @@
 
 ---
 
-## Índice
+## 📋 Índice
 
 - [Visão Geral](#visão-geral)
 - [Arquitetura](#arquitetura)
@@ -26,11 +26,11 @@
 
 ---
 
-## Visão Geral
+## 🎯 Visão Geral
 
 Este projeto implementa uma plataforma completa de observabilidade Kubernetes na AWS EKS utilizando as melhores práticas de Infraestrutura como Código (IaC). A solução utiliza Terraform para gerenciamento declarativo de infraestrutura, EKS para orquestração de contêineres e o stack Prometheus/Grafana/Loki/Tempo para monitoramento abrangente dos três sinais: métricas, logs e traces.
 
-### Funcionalidades Principais
+### ✨ Funcionalidades Principais
 
 - **Infraestrutura Declarativa**: Provisionamento em três camadas sequenciais com Terraform, estado remoto no S3
 - **Alta Disponibilidade**: Cluster EKS multi-AZ com node group distribuído por 3 zonas de disponibilidade
@@ -41,9 +41,9 @@ Este projeto implementa uma plataforma completa de observabilidade Kubernetes na
 
 ---
 
-## Arquitetura
+## 🏗️ Arquitetura
 
-### Infraestrutura AWS
+### ☁️ Infraestrutura AWS
 
 ```
 ┌───────────────────────────────────────────────────────────────────────────────────┐
@@ -75,7 +75,7 @@ Este projeto implementa uma plataforma completa de observabilidade Kubernetes na
 └───────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Stack de Observabilidade
+### 📊 Stack de Observabilidade
 
 ```
               ┌──────────────────────────────────────────┐
@@ -100,7 +100,7 @@ Este projeto implementa uma plataforma completa de observabilidade Kubernetes na
   (Zipkin, fake-service)     (OTLP, OTel Operator SDK)
 ```
 
-### Fases de Deploy
+### 🔄 Fases de Deploy
 
 A solução é implantada em três fases sequenciais, cada uma com estado Terraform independente no S3:
 
@@ -110,9 +110,9 @@ A solução é implantada em três fases sequenciais, cada uma com estado Terraf
 
 ---
 
-## Pré-requisitos
+## 📦 Pré-requisitos
 
-### Ferramentas
+### 🛠️ Ferramentas
 
 | Ferramenta | Versão mínima | Finalidade |
 |---|---|---|
@@ -121,14 +121,14 @@ A solução é implantada em três fases sequenciais, cada uma com estado Terraf
 | kubectl | compatível com 1.34 | Interação com o cluster |
 | Helm | ≥ 3.x | Instalação manual de charts (opcional) |
 
-### Requisitos AWS
+### ☁️ Requisitos AWS
 
 - Conta AWS ativa com credenciais configuradas no AWS CLI
 - Permissões para `iam:*`, `ec2:*`, `eks:*`, `s3:*` e `elasticloadbalancing:*`
 - Bucket S3 `ps-sl-state-bucket-cavi-2` criado na região `us-east-2` antes do primeiro `terraform init`
 - Quotas de serviço suficientes para: clusters EKS, VPC com subnets em 3 AZs, NAT Gateways e Load Balancers
 
-### Configuração GitHub Actions
+### ⚙️ Configuração GitHub Actions
 
 Os seguintes secrets devem estar configurados no repositório:
 
@@ -139,7 +139,7 @@ Os seguintes secrets devem estar configurados no repositório:
 
 ---
 
-## Estrutura do Projeto
+## 📁 Estrutura do Projeto
 
 ```
 sl-eks/
@@ -189,11 +189,11 @@ sl-eks/
 
 ---
 
-## Componentes de Infraestrutura
+## 🏢 Componentes de Infraestrutura
 
 > Documentação completa em [infra-cluster/README.md](infra-cluster/README.md) e [infra-resources/README.md](infra-resources/README.md)
 
-### Rede
+### 🌐 Rede
 
 A VPC usa subnets por banda para separar cargas de trabalho:
 
@@ -204,10 +204,10 @@ A VPC usa subnets por banda para separar cargas de trabalho:
 
 - **Prefix delegation (vpc-cni)**: cada node reserva um bloco `/28` para pods, sem subnet separada. `WARM_PREFIX_TARGET=1` mantém um bloco reservado por node para starts rápidos.
 - **NAT Gateway por AZ**: elimina single point of failure e cobranças de tráfego inter-AZ.
-- **VPC Endpoints**: S3 (Gateway), ECR API, ECR DKR, STS e EC2 mantêm pulls de imagem,  tokens IRSA e chamadas do vpc-cni dentro da rede AWS, sem passar pelo NAT Gateway.
+- **VPC Endpoints**: S3 (Gateway), ECR API, ECR DKR, STS e EC2 mantêm pulls de imagem, tokens IRSA e chamadas do vpc-cni dentro da rede AWS, sem passar pelo NAT Gateway.
 - **VPC Flow Logs**: captura todo o tráfego no CloudWatch Logs com retenção de 30 dias.
 
-### Computação e Identidade
+### 💻 Computação e Identidade
 
 - **Cluster EKS** v1.34, endpoints público e privado habilitados
 - **Node group gerenciado**: `t3.medium` (AL2023), 2 nodes base, escala até 6, nas subnets privadas
@@ -216,11 +216,11 @@ A VPC usa subnets por banda para separar cargas de trabalho:
 
 ---
 
-## Componentes de Aplicação
+## 🚀 Componentes de Aplicação
 
 > Documentação completa em [apps/README.md](apps/README.md)
 
-### Stack de Observabilidade
+### 📊 Stack de Observabilidade
 
 | Componente | Chart | Função | Sinal |
 |---|---|---|---|
@@ -233,7 +233,7 @@ A VPC usa subnets por banda para separar cargas de trabalho:
 | **otel-platform** | local | Instrumentation CRs compartilhados por namespace | — |
 | **ALB Controller** | aws | Provisiona ALBs a partir de recursos Ingress | — |
 
-### Aplicações de Exemplo
+### 🧪 Aplicações de Exemplo
 
 | Aplicação | Imagem | Instrumentação | Protocolo de tracing |
 |---|---|---|---|
@@ -242,13 +242,13 @@ A VPC usa subnets por banda para separar cargas de trabalho:
 
 ---
 
-## Deploy
+## 🚦 Deploy
 
-### Via GitHub Actions (recomendado)
+### 🤖 Via GitHub Actions (recomendado)
 
 Acione manualmente o workflow `tf-deploy.yml` ou faça push para `main`. O pipeline executa `validate` e `plan` antes de cada `apply`, na ordem: `infra-cluster` → `infra-resources` → `apps`.
 
-### Via linha de comando
+### 💻 Via linha de comando
 
 ```bash
 # 1. Infraestrutura base — VPC + EKS control plane
@@ -290,7 +290,7 @@ kubectl get ingress -n monitoring   # Grafana
 kubectl get ingress -n default      # node-ws, otel-test-app
 ```
 
-### Destroy
+### 🗑️ Destroy
 
 Use o workflow `tf-destroy.yml`. Ele executa na ordem inversa com limpeza de recursos AWS externos ao Terraform (ALBs, finalizers do Prometheus Operator, security groups órfãos).
 
@@ -298,9 +298,9 @@ Use o workflow `tf-destroy.yml`. Ele executa na ordem inversa com limpeza de rec
 
 ---
 
-## Acesso e Credenciais
+## 🔐 Acesso e Credenciais
 
-### Grafana
+### 📊 Grafana
 
 ```bash
 # Obter a URL do ALB
@@ -314,7 +314,7 @@ kubectl get ingress -n monitoring \
 
 > Altere as credenciais padrão antes de usar em produção.
 
-### Aplicações de Exemplo
+### 🧪 Aplicações de Exemplo
 
 ```bash
 # URL do node-ws
@@ -331,7 +331,7 @@ for i in $(seq 1 20); do curl -s http://$ALB/ > /dev/null; done
 # Ver traces: Grafana → Explore → Tempo → Service Name: node-ws
 ```
 
-### Console AWS
+### ☁️ Console AWS
 
 - Cluster EKS: `Amazon EKS > Clusters`
 - Load Balancers: `EC2 > Load Balancers`
@@ -340,9 +340,9 @@ for i in $(seq 1 20); do curl -s http://$ALB/ > /dev/null; done
 
 ---
 
-## Configuração
+## ⚙️ Configuração
 
-### Variáveis Terraform
+### 📝 Variáveis Terraform
 
 ```hcl
 # infra-cluster/variables.tf
@@ -358,7 +358,7 @@ variable "eks_admin_principal_arns" {
 }
 ```
 
-### Values Helm
+### ⛵ Values Helm
 
 Cada componente tem seu arquivo de values em `apps/values/`. Customizações comuns:
 
@@ -385,7 +385,7 @@ singleBinary:
     size: 20Gi               # volume de logs
 ```
 
-### Escalamento do Node Group
+### 📈 Escalamento do Node Group
 
 Ajuste em `infra-resources/node-group.tf`:
 
@@ -399,7 +399,7 @@ scaling_config {
 
 ---
 
-## Solução de Problemas
+## 🛠️ Solução de Problemas
 
 ### 1. Nodes não aparecem (`kubectl get nodes` vazio)
 
@@ -459,7 +459,7 @@ kubectl describe pod -n default -l app.kubernetes.io/name=node-ws \
 terraform force-unlock <LOCK_ID>
 ```
 
-### Debug detalhado
+### 🔍 Debug detalhado
 
 ```bash
 export TF_LOG=DEBUG
@@ -468,15 +468,15 @@ terraform apply
 
 ---
 
-## Roadmap
+## 🗺️ Roadmap
 
 Este roadmap mapeia o estado atual em relação ao padrão de referência para clusters EKS enterprise-grade, baseado no [AWS EKS Best Practices Guide](https://aws.github.io/aws-eks-best-practices/).
 
 ---
 
-### Concluído
+### ✅ Concluído
 
-#### Rede
+#### 🌐 Rede
 - [x] **VPC multi-AZ** — 3 AZs com subnets públicas (`/24`) e privadas (`/19`)
 - [x] **Prefix delegation (vpc-cni)** — `ENABLE_PREFIX_DELEGATION=true`; cada node reserva um bloco `/28` (16 IPs) para pods sem subnet separada; `WARM_PREFIX_TARGET=1` mantém um bloco reservado por node para starts rápidos
 - [x] **NAT Gateway por AZ** — elimina ponto único de falha e cobranças de tráfego inter-AZ
@@ -484,7 +484,7 @@ Este roadmap mapeia o estado atual em relação ao padrão de referência para c
 - [x] **VPC Flow Logs** — captura tipo `ALL` no CloudWatch Logs, retenção 30 dias
 - [x] **CIDR Reservations** — primeiro `/20` de cada subnet privada reservado para blocos `/28` do vpc-cni, evitando fragmentação do espaço de endereçamento
 
-#### Computação e Identidade
+#### 💻 Computação e Identidade
 - [x] **Cluster EKS gerenciado** v1.34, endpoints público e privado habilitados
 - [x] **Node group gerenciado** — `AL2023_x86_64_STANDARD`, escala de 2 a 6 nodes nas subnets privadas
 - [x] **IRSA para todos os componentes AWS** — EBS CSI Driver e ALB Controller sem credenciais estáticas
@@ -492,7 +492,7 @@ Este roadmap mapeia o estado atual em relação ao padrão de referência para c
 - [x] **Addon EBS CSI Driver** gerenciado pelo EKS com IRSA
 - [x] **StorageClass `gp3`** — criptografada, política `Retain`, bind `WaitForFirstConsumer`
 
-#### Observabilidade
+#### 📊 Observabilidade
 - [x] **Métricas** — kube-prometheus-stack (Prometheus + Grafana + Alertmanager + Node Exporter + kube-state-metrics)
 - [x] **Logs** — Loki (SingleBinary) + Promtail DaemonSet
 - [x] **Traces** — Tempo + OTel Collector com receivers OTLP gRPC/HTTP e Zipkin
@@ -503,86 +503,86 @@ Este roadmap mapeia o estado atual em relação ao padrão de referência para c
 
 ---
 
-### P0 — Obrigatório Antes de Produção
+### 🔴 P0 — Obrigatório Antes de Produção
 
 Itens que falhariam numa auditoria de segurança ou representam risco operacional imediato.
 
-#### Segurança — Control Plane
+#### 🔒 Segurança — Control Plane
 - [ ] **Logs do control plane EKS** — habilitar `cluster_enabled_log_types = ["api", "audit", "authenticator", "controllerManager", "scheduler"]`; sem isso não há rastreabilidade de quem fez o quê no cluster
 - [ ] **Criptografia de Secrets em repouso (KMS)** — configurar `cluster_encryption_config` com CMK do KMS; atualmente os Kubernetes Secrets são armazenados sem criptografia adicional no etcd
 - [ ] **Restrição do endpoint público da API** — `cluster_endpoint_public_access_cidrs` está em `0.0.0.0/0`; limitar aos CIDRs de VPN/escritório ou migrar para endpoint privado
 
-#### Segurança — Rede e Pods
+#### 🛡️ Segurança — Rede e Pods
 - [ ] **Network Policies** — sem políticas de rede, qualquer pod comprometido pode alcançar qualquer outro pod no cluster; implementar deny-all + allows explícitos por namespace
 - [ ] **Pod Security Standards** — habilitar Pod Security Admission com perfil `Baseline` ou `Restricted`; impede containers privilegiados, `hostNetwork`, `hostPID` e mount de paths do host
 - [ ] **Restringir Security Group dos nodes** — `sg.tf` abre todas as portas dos ranges RFC-1918 (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`); limitar ao CIDR da VPC e às portas estritamente necessárias (443, kubelet 10250)
 
-#### Confiabilidade
+#### 🔧 Confiabilidade
 - [ ] **Cluster Autoscaler ou Karpenter** — o node group é estático (escala manual); sem autoscaler o cluster não reage a picos de carga nem reduz custo em baixa utilização
 - [ ] **TLS / cert-manager** — ALBs expostos sem HTTPS; integrar cert-manager com ACM ou Let's Encrypt para renovação automática de certificados
 
 ---
 
-### P1 — Primeiro Sprint Pós-Launch
+### 🟠 P1 — Primeiro Sprint Pós-Launch
 
 Itens que não bloqueiam o go-live, mas devem ser resolvidos nas primeiras semanas.
 
-#### Segurança
+#### 🔒 Segurança
 - [ ] **External Secrets Operator** — integrar com AWS Secrets Manager ou SSM Parameter Store; atualmente segredos de aplicação são Kubernetes Secrets em base64 sem rotação automática
 - [ ] **Detecção de ameaças em runtime** — habilitar Amazon GuardDuty for EKS Runtime Monitoring ou implantar Falco; detecta escapes de container, processos suspeitos e cryptomining
 - [ ] **Scanning de imagens** — habilitar ECR Enhanced Scanning (Amazon Inspector) e bloquear imagens com CVEs críticos no CI
 - [ ] **Remover root da conta dos admins** — `eks_admin_principal_arns` inclui o root da conta AWS; substituir por roles IAM com MFA
 
-#### Confiabilidade e Disponibilidade
+#### 🔧 Confiabilidade e Disponibilidade
 - [ ] **PodDisruptionBudgets** — sem PDBs, um drain de node durante upgrade pode derrubar todos os pods de um serviço simultaneamente
 - [ ] **Topology Spread Constraints** — pods do mesmo Deployment podem ser agendados no mesmo node ou AZ; configurar spread por AZ e por node
 - [ ] **Instâncias compute-optimized** — `t3.medium` é burstable; sob carga sustentada os créditos de CPU esgotam e a instância faz throttle; migrar para `m6i.large` ou `m7i.large` para produção
 - [ ] **Probes de liveness/readiness** — padronizar probes em todos os workloads de aplicação
 
-#### Observabilidade
+#### 📊 Observabilidade
 - [ ] **Regras de alerting no Alertmanager** — Prometheus instalado sem `PrometheusRule` ou `AlertmanagerConfig`; sem alertas, incidentes são detectados apenas manualmente
 - [ ] **Integração PagerDuty/Slack** — notificações para node not-ready, pod crash-looping, PVC cheio e deployment sem réplicas
 - [ ] **Métricas do control plane** — API server, scheduler e controller-manager não estão sendo coletados
 
-#### Custo
+#### 💰 Custo
 - [ ] **Spot instances para workloads tolerantes a falha** — observabilidade stateless e apps de teste podem rodar em Spot com economia de 60–80%
 - [ ] **Loki com backend S3** — Loki usa EBS local; dados não sobrevivem à recriação do cluster; migrar para `SimpleScalable` com S3
 
 ---
 
-### P2 — Maturidade Operacional
+### 🟡 P2 — Maturidade Operacional
 
 Itens para clusters estabelecidos em produção que buscam maturidade enterprise.
 
-#### Governança e Compliance
+#### ⚖️ Governança e Compliance
 - [ ] **Engine de políticas (Kyverno ou OPA Gatekeeper)** — enforcement de allowlist de registry, proibição de tag `latest`, labels obrigatórias, `securityContext` mínimo
 - [ ] **RBAC por equipe** — atualmente só existe `cluster-admin`; definir Roles/ClusterRoles por função (dev, ops, read-only) com bindings por namespace
 - [ ] **Cotas de recursos por namespace** — sem `ResourceQuota` e `LimitRange`, uma equipe pode esgotar CPU/memória do cluster inteiro
 - [ ] **Integração SSO (IAM Identity Center / OIDC)** — substituir ARNs de usuários IAM individuais por roles federadas via Identity Provider corporativo
 
-#### GitOps e CI/CD
+#### 🔄 GitOps e CI/CD
 - [ ] **GitOps (ArgoCD ou Flux)** — substituir `terraform apply` dos Helm releases por sincronização declarativa com o Git; audit trail por deploy
 - [ ] **Pipeline de supply chain security** — assinatura de imagens (Cosign), geração de SBOM, verificação de assinatura na admissão
 - [ ] **Lint e scan de manifests no CI** — integrar Checkov, Polaris ou kube-score para bloquear configurações inseguras antes do merge
 
-#### Confiabilidade Avançada
+#### 🔧 Confiabilidade Avançada
 - [ ] **Velero — backup de cluster e PVs** — sem backup, a recriação do cluster perde dados de PVCs (Prometheus histórico, logs persistentes)
 - [ ] **Vertical Pod Autoscaler (VPA)** — em modo recomendação para identificar pods sub ou super-dimensionados
 - [ ] **HPA / KEDA por workload** — `node-ws` sem autoscaling horizontal; KEDA para scaling baseado em eventos (SQS, Kafka)
 
-#### Observabilidade Avançada
+#### 📊 Observabilidade Avançada
 - [ ] **SLOs/SLIs com recording rules** — orçamentos de erro por serviço com alertas baseados em taxa de erros e latência
 - [ ] **CloudTrail + Athena para auditoria de API AWS** — rastrear quais pods (via IRSA) chamaram quais APIs AWS e quando
 - [ ] **Kubecost ou OpenCost** — atribuição de custo por namespace/equipe/workload
 
-#### Documentação Operacional
+#### 📚 Documentação Operacional
 - [ ] **Runbooks operacionais** — procedimentos para: upgrade de versão do EKS, substituição de nodes, rollback de Helm release
 - [ ] **Procedimento de break-glass** — acesso de emergência documentado com trilha de auditoria
 - [ ] **Guia de DR** — RPO/RTO por componente, procedimento de restore com Velero
 
 ---
 
-## Contribuindo
+## 🤝 Contribuindo
 
 1. Fork o repositório
 2. Crie um branch de funcionalidade: `git checkout -b feature/nova-funcionalidade`
@@ -590,7 +590,7 @@ Itens para clusters estabelecidos em produção que buscam maturidade enterprise
 4. Push para o branch: `git push origin feature/nova-funcionalidade`
 5. Abra um Pull Request
 
-### Diretrizes
+### 📌 Diretrizes
 
 - Siga as boas práticas do Terraform (variáveis com `description`, outputs documentados, seções comentadas nos `.tf`)
 - Atualize o README da camada afetada para qualquer mudança de recurso ou comportamento
@@ -598,6 +598,6 @@ Itens para clusters estabelecidos em produção que buscam maturidade enterprise
 
 ---
 
-## Licença
+## 📄 Licença
 
 Este projeto é software proprietário. Todos os direitos reservados.

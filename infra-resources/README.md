@@ -6,7 +6,7 @@ Esta camada usa tanto o provider `aws` (node group, addon, IAM) quanto o provide
 
 ---
 
-## Índice
+## 📋 Índice
 
 1. [Visão Geral da Arquitetura](#visão-geral-da-arquitetura)
 2. [Recursos](#recursos)
@@ -25,7 +25,7 @@ Esta camada usa tanto o provider `aws` (node group, addon, IAM) quanto o provide
 
 ---
 
-## Visão Geral da Arquitetura
+## 🏗️ Visão Geral da Arquitetura
 
 ```
 ┌───────────────────────────────────────────────────────────────────────────────┐
@@ -59,11 +59,11 @@ Esta camada usa tanto o provider `aws` (node group, addon, IAM) quanto o provide
 
 ---
 
-## Recursos
+## 📦 Recursos
 
-### Node Group — `node-group.tf`
+### 💻 Node Group — `node-group.tf`
 
-| | |
+| Parâmetro | Valor |
 |---|---|
 | Tipo | Managed Node Group (EKS gerenciado) |
 | AMI | `AL2023_x86_64_STANDARD` |
@@ -92,11 +92,11 @@ vpc_security_group_ids:
 
 > **Nota (Roadmap P0):** sem Cluster Autoscaler ou Karpenter, o node group não escala reativamente. O `desired_size` permanece em 2 independente da carga nos pods.
 
-### EBS CSI Driver — `addons.tf` + `iam.tf`
+### 💾 EBS CSI Driver — `addons.tf` + `iam.tf`
 
 O EBS CSI Driver é instalado como addon gerenciado pelo EKS (não via Helm), o que delega à AWS o gerenciamento de atualizações de compatibilidade com a versão do Kubernetes.
 
-| | |
+| Parâmetro | Valor |
 |---|---|
 | Addon | `aws-ebs-csi-driver` |
 | Versão | `v1.29.1-eksbuild.1` |
@@ -132,7 +132,7 @@ depends_on = [aws_eks_node_group.main]
 
 O addon é criado _após_ o node group estar pronto. Sem nodes disponíveis, o pod do EBS CSI controller ficaria em estado `Pending` indefinidamente.
 
-### StorageClass gp3 — `storage.tf`
+### 🗄️ StorageClass gp3 — `storage.tf`
 
 | Parâmetro | Valor | Descrição |
 |---|---|---|
@@ -146,15 +146,15 @@ O addon é criado _após_ o node group estar pronto. Sem nodes disponíveis, o p
 **Recurso `kubernetes_manifest` em vez de `kubernetes_storage_class_v1`**
 
 ```
-kubernetes_storage_class_v1 usa cliente-side apply → falha se o recurso já existir
-kubernetes_manifest         usa server-side apply  → adota o recurso se ele já existir
+kubernetes_storage_class_v1  usa client-side apply → falha se o recurso já existir
+kubernetes_manifest           usa server-side apply → adota o recurso se ele já existir
 ```
 
 `kubernetes_manifest` é idempotente: re-aplicações e migrações de estado Terraform não causam erros de conflito. O Terraform apenas reconcilia o estado desejado com o estado existente no cluster.
 
 ---
 
-## Dependências de Infraestrutura
+## 🔗 Dependências de Infraestrutura
 
 Esta camada lê o estado de `infra-cluster` via `remote-state.tf`:
 
@@ -183,9 +183,9 @@ Mapeamento completo de dependências:
 
 ---
 
-## Detalhamento Técnico
+## 🔬 Detalhamento Técnico
 
-### Launch Template e Security Groups
+### 🛡️ Launch Template e Security Groups
 
 ```
 aws_launch_template.node_group
@@ -206,7 +206,7 @@ aws_launch_template.node_group
 
 O node group usa `launch_template { id, version }` apontando para a versão mais recente do launch template. Qualquer alteração no launch template gera uma nova versão e o EKS inicia um rolling update dos nodes.
 
-### IRSA do EBS CSI Driver
+### 🔑 IRSA do EBS CSI Driver
 
 ```
 Pod do ebs-csi-controller (service account: ebs-csi-controller-sa, namespace: kube-system)
@@ -232,7 +232,7 @@ Credenciais temporárias AWS entregues ao pod
 Controller cria/anexa/detacha volumes EBS via API EC2
 ```
 
-### Ordem de Criação dos Recursos
+### 🔢 Ordem de Criação dos Recursos
 
 A ordem de criação dentro desta camada importa — recursos com dependências implícitas ou explícitas:
 
@@ -254,7 +254,7 @@ O provider `kubernetes` autentica via `aws eks get-token` usando `var.cluster_na
 
 ---
 
-## Variáveis
+## 📝 Variáveis
 
 | Variável | Tipo | Padrão | Descrição |
 |---|---|---|---|
@@ -267,7 +267,7 @@ O provider `kubernetes` autentica via `aws eks get-token` usando `var.cluster_na
 
 ---
 
-## Outputs
+## 📤 Outputs
 
 | Output | Origem | Consumido por | Descrição |
 |---|---|---|---|
@@ -279,7 +279,7 @@ O provider `kubernetes` autentica via `aws eks get-token` usando `var.cluster_na
 
 ---
 
-## Como Verificar
+## ✅ Como Verificar
 
 ```bash
 # Confirmar nodes Running
@@ -324,7 +324,7 @@ kubectl delete pvc test-ebs-pvc
 
 ---
 
-## Deploy
+## 🚦 Deploy
 
 ```bash
 cd infra-resources
