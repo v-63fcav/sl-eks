@@ -57,6 +57,23 @@ jobs:
           echo "cluster_ca=$(terraform output -raw cluster_ca)"             >> $GITHUB_OUTPUT
           echo "alb_irsa_role=$(terraform output -raw alb_irsa_role)"       >> $GITHUB_OUTPUT
 
+      # vpc_id is an output of infra-resources (not infra-cluster).
+      # The apps layer requires it as an input variable even on destroy.
+      - name: Terraform Init - Infra Resources (read vpc_id)
+        working-directory: infra-resources
+        run: |
+          terraform init \
+            -backend-config="bucket=ps-sl-state-bucket-cavi-2" \
+            -backend-config="key=infra-resources/terraform.tfstate" \
+            -backend-config="region=us-east-2" \
+            -backend-config="encrypt=true"
+
+      - name: Export Infra-Resources Outputs
+        id: resources
+        working-directory: infra-resources
+        run: |
+          echo "vpc_id=$(terraform output -raw vpc_id)" >> $GITHUB_OUTPUT
+
       - name: Setup kubectl
         uses: azure/setup-kubectl@v4
 
@@ -135,6 +152,7 @@ jobs:
           TF_VAR_kube_host:     ${{ steps.cluster.outputs.cluster_endpoint }}
           TF_VAR_kube_ca:       ${{ steps.cluster.outputs.cluster_ca }}
           TF_VAR_alb_irsa_role: ${{ steps.cluster.outputs.alb_irsa_role }}
+          TF_VAR_vpc_id:        ${{ steps.resources.outputs.vpc_id }}
 
   destroy-infra-resources:
     name: Terraform Destroy - Infra Resources

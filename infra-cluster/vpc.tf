@@ -26,14 +26,12 @@ module "vpc" {
   # trying to place NAT GWs in AZs that have no public subnet
   azs = slice(data.aws_availability_zones.available.names, 0, 2)
 
-  # Node band:   10.0.0.0–10.0.7.255   (/24 per AZ, 8 AZ slots, ~249 IPs each)
-  # With custom networking nodes use 1 IP each (primary ENI only); /24 supports ~249 nodes/AZ
+  # Node band:  10.0.0.0–10.0.7.255  (/24 per AZ, ~249 node IPs each)
   private_subnets = ["10.0.0.0/24", "10.0.1.0/24"]
-  # Public band:  10.0.8.0–10.0.15.255  (/24 per AZ, 8 AZ slots)
+  # Public band: 10.0.8.0–10.0.15.255 (/24 per AZ)
   public_subnets = ["10.0.8.0/24", "10.0.9.0/24"]
-  # Pod band:     10.0.32.0–10.0.255.255 (/19 per AZ, 7 AZ slots, ~8k IPs each)
-  # 10.0.224.0–10.0.255.255 reserved — fits one /19 as a 7th pod AZ or /20 at half density
-  intra_subnets = ["10.0.32.0/19", "10.0.64.0/19"]
+  # No intra_subnets — pod IPs come from Cilium's overlay CIDR (192.168.0.0/16),
+  # not from VPC address space, so a dedicated pod subnet tier is not needed.
 
   enable_nat_gateway     = true
   one_nat_gateway_per_az = true
@@ -60,24 +58,6 @@ module "vpc" {
     "kubernetes.io/cluster/${local.cluster_name}" = "shared"
     "kubernetes.io/role/internal-elb"             = "1"
   }
-}
-
-# =============================================================================
-# POD SUBNET INTERNET ACCESS
-# =============================================================================
-# The vpc module's intra_subnets have no default route — they are intentionally
-# isolated. Pods (which get IPs from these subnets via custom networking) need
-# outbound internet to pull public container images (Docker Hub, quay.io, etc.).
-# These routes add 0.0.0.0/0 → NAT GW to each intra route table.
-# Both natgw_ids and intra_route_table_ids are ordered by AZ, so index N in
-# each list belongs to the same AZ.
-
-resource "aws_route" "intra_nat" {
-  count = length(module.vpc.intra_route_table_ids)
-
-  route_table_id         = module.vpc.intra_route_table_ids[count.index]
-  destination_cidr_block = "0.0.0.0/0"
-  nat_gateway_id         = module.vpc.natgw_ids[count.index]
 }
 
 # =============================================================================
@@ -108,7 +88,7 @@ resource "aws_vpc_endpoint" "s3" {
   vpc_id            = module.vpc.vpc_id
   service_name      = "com.amazonaws.${var.aws_region}.s3"
   vpc_endpoint_type = "Gateway"
-  route_table_ids   = concat(module.vpc.private_route_table_ids, module.vpc.intra_route_table_ids)
+  route_table_ids   = module.vpc.private_route_table_ids
 }
 
 # ECR interface endpoints — keeps image pulls within the AWS backbone (cost + security)
