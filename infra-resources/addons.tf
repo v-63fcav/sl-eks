@@ -1,35 +1,9 @@
 # =============================================================================
-# EBS CSI DRIVER
+# EKS ADDONS
 # =============================================================================
-# IAM role and addon kept together — IAM trust policy references the OIDC
-# provider from remote state; addon references the role created here.
-# Both depend on the node group so pods can be scheduled immediately.
 
-resource "aws_iam_role" "ebs_csi_driver" {
-  name = "AmazonEKS_EBS_CSI_DriverRole"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect = "Allow"
-      Principal = {
-        Federated = data.terraform_remote_state.cluster.outputs.oidc_provider_arn
-      }
-      Action = "sts:AssumeRoleWithWebIdentity"
-      Condition = {
-        StringEquals = {
-          "${data.terraform_remote_state.cluster.outputs.oidc_provider}:sub" = "system:serviceaccount:kube-system:ebs-csi-controller-sa"
-        }
-      }
-    }]
-  })
-}
-
-resource "aws_iam_role_policy_attachment" "ebs_csi_driver" {
-  role       = aws_iam_role.ebs_csi_driver.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
-}
-
+# EBS CSI driver — IAM role is in iam.tf; addon depends on the node group so
+# the controller pod can be scheduled immediately after the first node is ready.
 resource "aws_eks_addon" "ebs_csi_driver" {
   cluster_name             = var.cluster_name
   addon_name               = "aws-ebs-csi-driver"

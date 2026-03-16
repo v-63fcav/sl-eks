@@ -54,6 +54,9 @@ jobs:
       - name: Terraform Validate
         run: terraform validate
 
+      - name: Terraform Plan
+        run: terraform plan -no-color -input=false
+
       - name: Terraform Apply
         run: terraform apply -auto-approve
 
@@ -65,7 +68,7 @@ jobs:
           echo "cluster_ca=$(terraform output -raw cluster_ca)"             >> $GITHUB_OUTPUT
 
   infra-resources:
-    name: Infra — ENIConfigs + Node Group
+    name: Infra — Node Group + Addons
     runs-on: ubuntu-latest
     needs: infra-cluster
     outputs:
@@ -104,6 +107,16 @@ jobs:
             -backend-config="key=infra-resources/terraform.tfstate" \
             -backend-config="region=us-east-2" \
             -backend-config="encrypt=true"
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        run: terraform plan -no-color -input=false
+        env:
+          TF_VAR_cluster_name: ${{ needs.infra-cluster.outputs.cluster_name }}
+          TF_VAR_kube_host:    ${{ needs.infra-cluster.outputs.cluster_endpoint }}
+          TF_VAR_kube_ca:      ${{ needs.infra-cluster.outputs.cluster_ca }}
 
       - name: Terraform Apply
         run: terraform apply -auto-approve

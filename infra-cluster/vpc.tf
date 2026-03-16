@@ -1,7 +1,7 @@
 data "aws_availability_zones" "available" {}
 
 locals {
-  cluster_name = "ps-sl-eks-${random_string.suffix.result}"
+  cluster_name = "sl-eks-${random_string.suffix.result}"
 }
 
 resource "random_string" "suffix" {
@@ -12,26 +12,31 @@ resource "random_string" "suffix" {
 # =============================================================================
 # VPC
 # =============================================================================
-# Three-tier network: public (ALBs), private (nodes), intra (pods).
-# Custom networking assigns pod IPs from the intra subnets (/19 each, ~8k IPs/AZ)
-# instead of the node subnets, separating node and pod address space cleanly.
+# Two-tier network: public (ALBs, NAT GWs) and private (nodes + pods).
+# Standard vpc-cni with prefix delegation — no custom networking, no overlay.
+#
+# Layout (10.0.0.0/16):
+#   Public band  10.0.0.0/19   — one /24 per AZ, room for 6 AZs
+#   Private band 10.0.32.0/19+ — one /19 per AZ, sequential by 32 in 3rd octet
+#     active : 10.0.32.0/19  10.0.64.0/19  10.0.96.0/19
+#     future : 10.0.128.0/19 10.0.160.0/19 10.0.192.0/19
 
 module "vpc" {
   source  = "terraform-aws-modules/vpc/aws"
   version = "5.7.0"
 
-  name = "ps-sl-eks-vpc"
+  name = "sl-eks-vpc"
   cidr = var.vpc_cidr
   # Slice to exactly match subnet count — prevents one_nat_gateway_per_az from
   # trying to place NAT GWs in AZs that have no public subnet
-  azs = slice(data.aws_availability_zones.available.names, 0, 2)
+  azs = slice(data.aws_availability_zones.available.names, 0, 3)
 
-  # Node band:  10.0.0.0–10.0.7.255  (/24 per AZ, ~249 node IPs each)
-  private_subnets = ["10.0.0.0/24", "10.0.1.0/24"]
-  # Public band: 10.0.8.0–10.0.15.255 (/24 per AZ)
-  public_subnets = ["10.0.8.0/24", "10.0.9.0/24"]
-  # No intra_subnets — pod IPs come from Cilium's overlay CIDR (192.168.0.0/16),
-  # not from VPC address space, so a dedicated pod subnet tier is not needed.
+  # Private band: /19 per AZ — nodes and pods share the subnet via prefix delegation.
+  # Each /19 holds 512 × /28 prefixes; reserving the first /20 (below) keeps
+  # prefix blocks contiguous and avoids InsufficientCidrBlocks errors.
+  private_subnets = ["10.0.32.0/19", "10.0.64.0/19", "10.0.96.0/19"]
+  # Public band: /24 per AZ — sized for NAT GWs and ALB nodes (AWS recommendation).
+  public_subnets = ["10.0.0.0/24", "10.0.1.0/24", "10.0.2.0/24"]
 
   enable_nat_gateway     = true
   one_nat_gateway_per_az = true
@@ -58,6 +63,29 @@ module "vpc" {
     "kubernetes.io/cluster/${local.cluster_name}" = "shared"
     "kubernetes.io/role/internal-elb"             = "1"
   }
+}
+
+# =============================================================================
+# SUBNET CIDR RESERVATIONS — prefix delegation
+# =============================================================================
+# Reserves the first /20 of each private /19 exclusively for /28 prefix blocks.
+# Without this, individual secondary IPs can fragment the address space over time,
+# causing EC2 to fail prefix allocation with InsufficientCidrBlocks errors.
+
+locals {
+  # First /20 of each private /19 (cidrsubnet splits the /19 in half, index 0 = first half)
+  private_prefix_reservation_cidrs = [
+    for cidr in ["10.0.32.0/19", "10.0.64.0/19", "10.0.96.0/19"] :
+    cidrsubnet(cidr, 1, 0)
+  ]
+}
+
+resource "aws_ec2_subnet_cidr_reservation" "prefix_delegation" {
+  count            = length(local.private_prefix_reservation_cidrs)
+  subnet_id        = module.vpc.private_subnets[count.index]
+  cidr_block       = local.private_prefix_reservation_cidrs[count.index]
+  reservation_type = "prefix"
+  description      = "Reserved for vpc-cni /28 prefix delegation blocks"
 }
 
 # =============================================================================
@@ -120,9 +148,9 @@ resource "aws_vpc_endpoint" "sts" {
   private_dns_enabled = true
 }
 
-# EC2 endpoint — vpc-cni calls EC2 APIs to attach secondary ENIs for custom
-# networking. Keeping these calls in the AWS backbone avoids NAT GW latency
-# and cost during node scale-up events.
+# EC2 endpoint — vpc-cni calls EC2 APIs to assign /28 prefix blocks to ENIs
+# during node scale-up. Keeping these calls in the AWS backbone avoids NAT GW
+# latency and cost.
 resource "aws_vpc_endpoint" "ec2" {
   vpc_id              = module.vpc.vpc_id
   service_name        = "com.amazonaws.${var.aws_region}.ec2"

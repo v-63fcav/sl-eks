@@ -1,10 +1,6 @@
 # =============================================================================
 # NODE GROUP
 # =============================================================================
-# Declared as a standalone resource (not inside module.eks) so that
-# depends_on = [kubernetes_manifest.eni_config] can be expressed explicitly.
-# This guarantees ENIConfigs exist in every AZ before any node boots and the
-# VPC CNI reads them at node initialization time.
 
 resource "aws_launch_template" "node_group" {
   name_prefix = "${var.cluster_name}-node-"
@@ -34,5 +30,4 @@ resource "aws_eks_node_group" "main" {
     version = aws_launch_template.node_group.latest_version
   }
 
-  depends_on = [kubernetes_manifest.eni_config]
 }

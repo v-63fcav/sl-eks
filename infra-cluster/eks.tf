@@ -2,7 +2,7 @@
 # CLUSTER
 # =============================================================================
 # Core EKS control plane. vpc-cni is configured with before_compute = true so
-# custom networking is active before any node boots.
+# prefix delegation is active before any node boots.
 
 module "eks" {
   source          = "terraform-aws-modules/eks/aws"
@@ -17,20 +17,22 @@ module "eks" {
   cluster_endpoint_private_access = true
 
   tags = {
-    cluster = "ps-sl"
+    cluster = "sl-eks"
   }
 
   vpc_id = module.vpc.vpc_id
 
-  # vpc-cni with before_compute = true ensures the addon is applied before any
-  # node group is created, so nodes boot with custom networking already active.
+  # vpc-cni with before_compute = true ensures prefix delegation is active
+  # before any node boots, so the first ENI assignments use /28 blocks.
+  # WARM_PREFIX_TARGET = 1 keeps one spare /28 per node for fast pod starts
+  # without over-reserving address space.
   cluster_addons = {
     vpc-cni = {
       before_compute = true
       configuration_values = jsonencode({
         env = {
-          AWS_VPC_K8S_CNI_CUSTOM_NETWORK_CFG = "true"
-          ENI_CONFIG_LABEL_DEF               = "topology.kubernetes.io/zone"
+          ENABLE_PREFIX_DELEGATION = "true"
+          WARM_PREFIX_TARGET       = "1"
         }
       })
     }

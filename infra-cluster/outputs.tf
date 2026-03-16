@@ -33,11 +33,6 @@ output "private_subnets" {
   value       = module.vpc.private_subnets
 }
 
-output "intra_subnets" {
-  description = "List of intra subnet IDs (used by pod ENIConfigs)."
-  value       = module.vpc.intra_subnets
-}
-
 output "worker_mgmt_sg_id" {
   description = "ID of the additional worker node management security group."
   value       = aws_security_group.all_worker_mgmt.id
