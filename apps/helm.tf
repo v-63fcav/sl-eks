@@ -14,6 +14,7 @@ resource "helm_release" "alb_controller" {
     templatefile("${path.module}/values/values-alb-controller.yaml", {
       cluster_name  = var.cluster_name
       alb_irsa_role = var.alb_irsa_role
+      vpc_id        = var.vpc_id
     })
   ]
 }

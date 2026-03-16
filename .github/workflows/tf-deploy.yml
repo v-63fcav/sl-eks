@@ -73,6 +73,7 @@ jobs:
       cluster_endpoint: ${{ steps.export.outputs.cluster_endpoint }}
       cluster_ca:       ${{ steps.export.outputs.cluster_ca }}
       alb_irsa_role:    ${{ steps.export.outputs.alb_irsa_role }}
+      vpc_id:           ${{ steps.export.outputs.vpc_id }}
     permissions:
       contents: read
       id-token: write
@@ -118,6 +119,7 @@ jobs:
           echo "cluster_endpoint=$(terraform output -raw cluster_endpoint)" >> $GITHUB_OUTPUT
           echo "cluster_ca=$(terraform output -raw cluster_ca)"             >> $GITHUB_OUTPUT
           echo "alb_irsa_role=$(terraform output -raw alb_irsa_role)"       >> $GITHUB_OUTPUT
+          echo "vpc_id=$(terraform output -raw vpc_id)"                     >> $GITHUB_OUTPUT
 
   apps:
     name: Apps — Helm Releases
@@ -164,6 +166,7 @@ jobs:
           TF_VAR_kube_host:     ${{ needs.infra-resources.outputs.cluster_endpoint }}
           TF_VAR_kube_ca:       ${{ needs.infra-resources.outputs.cluster_ca }}
           TF_VAR_alb_irsa_role: ${{ needs.infra-resources.outputs.alb_irsa_role }}
+          TF_VAR_vpc_id:        ${{ needs.infra-resources.outputs.vpc_id }}
 
       - name: Terraform Apply
         run: terraform apply -auto-approve
@@ -172,3 +175,4 @@ jobs:
           TF_VAR_kube_host:     ${{ needs.infra-resources.outputs.cluster_endpoint }}
           TF_VAR_kube_ca:       ${{ needs.infra-resources.outputs.cluster_ca }}
           TF_VAR_alb_irsa_role: ${{ needs.infra-resources.outputs.alb_irsa_role }}
+          TF_VAR_vpc_id:        ${{ needs.infra-resources.outputs.vpc_id }}

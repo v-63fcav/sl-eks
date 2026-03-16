@@ -12,3 +12,4 @@ variable "cluster_name" {
 variable "kube_host" {}
 variable "kube_ca" {}
 variable "alb_irsa_role" {}
+variable "vpc_id" {}

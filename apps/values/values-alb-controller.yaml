@@ -1,4 +1,5 @@
 clusterName: ${cluster_name}
+vpcId: ${vpc_id}
 
 serviceAccount:
   create: true

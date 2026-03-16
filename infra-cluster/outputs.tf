@@ -58,6 +58,11 @@ output "oidc_provider_arn" {
   value       = module.eks.oidc_provider_arn
 }
 
+output "vpc_id" {
+  description = "VPC ID — passed to the ALB controller to avoid IMDS discovery."
+  value       = module.vpc.vpc_id
+}
+
 output "aws_region" {
   description = "AWS region."
   value       = var.aws_region

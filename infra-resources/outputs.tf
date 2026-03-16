@@ -19,3 +19,7 @@ output "cluster_ca" {
 output "alb_irsa_role" {
   value = data.terraform_remote_state.cluster.outputs.alb_irsa_role
 }
+
+output "vpc_id" {
+  value = data.terraform_remote_state.cluster.outputs.vpc_id
+}
