@@ -247,6 +247,7 @@ Nenhuma credencial estática. Ambas as roles usam **IRSA via OIDC**:
 | **otel-platform** | Instrumentation CRs compartilhados por namespace | — |
 | **AWS Load Balancer Controller** | Provisiona ALBs a partir de recursos Ingress | — |
 
+
 ### Aplicações de Exemplo
 
 | Aplicação | Imagem | Instrumentação | Protocolo |
