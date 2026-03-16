@@ -1,6 +1,6 @@
-# ps-sl — Camada de Aplicações
+# apps
 
-Este diretório contém a configuração Terraform que instala todos os workloads Kubernetes no cluster EKS produzido pela camada `infra/`. Tudo é implantado via Helm releases ou recursos nativos do Kubernetes. O stack forma uma plataforma completa de observabilidade (métricas, logs, traces) mais aplicações de exemplo instrumentadas.
+Terceira camada do cluster. Instala todos os workloads Kubernetes no cluster EKS produzido pelas camadas `infra-cluster/` e `infra-resources/`. Tudo é implantado via Helm releases ou recursos nativos do Kubernetes. O stack forma uma plataforma completa de observabilidade (métricas, logs, traces) mais aplicações de exemplo instrumentadas com OpenTelemetry.
 
 ## Visão Geral da Arquitetura
 
@@ -239,22 +239,34 @@ Serviço HTTP Go pré-construído (`nicholasjackson/fake-service:v0.26.2`) usado
 
 | Recurso | Arquivo | Finalidade |
 |---|---|---|
-| `kubernetes_storage_class_v1.gp3` | [../infra/k8s-resources.tf](../infra/k8s-resources.tf) | StorageClass EBS gp3 (criptografada, `Retain`, `WaitForFirstConsumer`) usada por todos os PVCs |
+| `kubernetes_manifest.gp3_storage_class` | [../infra-resources/storage.tf](../infra-resources/storage.tf) | StorageClass EBS gp3 (criptografada, `Retain`, `WaitForFirstConsumer`) usada por todos os PVCs |
 
-Todos os Helm releases que criam PVCs dependem desta StorageClass estar presente. Como ela é provisionada na camada `infra/`, que executa antes de `apps/`, a dependência é satisfeita pela ordem do pipeline.
+Todos os Helm releases que criam PVCs dependem desta StorageClass estar presente. Como ela é provisionada na camada `infra-resources/`, que executa antes de `apps/`, a dependência é satisfeita pela ordem do pipeline.
 
 ---
 
 ## Deploy
 
 ```bash
-# Primeiro, a partir do diretório infra/
-cd infra && terraform apply
+# 1. Infraestrutura base — VPC + EKS
+cd infra-cluster && terraform apply
 
-# Em seguida, implante os apps
+# 2. Recursos do cluster — node group + addons + StorageClass
+cd ../infra-resources
+terraform apply \
+  -var="cluster_name=<cluster_name>" \
+  -var="kube_host=<cluster_endpoint>" \
+  -var="kube_ca=<cluster_ca>"
+
+# 3. Aplicações — Helm releases
 cd ../apps
-terraform init   # necessário após adicionar o provider time
-terraform apply
+terraform init
+terraform apply \
+  -var="cluster_name=<cluster_name>" \
+  -var="kube_host=<cluster_endpoint>" \
+  -var="kube_ca=<cluster_ca>" \
+  -var="alb_irsa_role=<alb_irsa_role>" \
+  -var="vpc_id=<vpc_id>"
 ```
 
 Após o `terraform apply`:

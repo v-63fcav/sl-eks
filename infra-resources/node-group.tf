@@ -1,6 +1,9 @@
 # =============================================================================
 # NODE GROUP
 # =============================================================================
+# Managed node group with AL2023 + t3.medium. Launch template is used only to
+# attach the correct security groups — AMI, instance type, and userData are
+# managed by EKS. Reads networking and IAM values from infra-cluster remote state.
 
 resource "aws_launch_template" "node_group" {
   name_prefix = "${var.cluster_name}-node-"
