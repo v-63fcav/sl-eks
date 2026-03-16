@@ -35,6 +35,7 @@ resource "helm_release" "kube_prometheus_stack" {
 
   values = [file("${path.module}/values/values-kube-prometheus-stack.yaml")]
 
+  depends_on = [helm_release.alb_controller]
   # CRDs can be large; increase timeout for first install
   timeout = 600
 
