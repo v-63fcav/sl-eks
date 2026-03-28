@@ -50,58 +50,58 @@ Este projeto implementa uma plataforma completa de observabilidade Kubernetes na
 ### Infraestrutura AWS
 
 ```
-┌───────────────────────────────────────────────────────────────────────────────────┐
-│                              AWS · Region: us-east-2                              │
-│  ┌─────────────────────────────────────────────────────────────────────────────┐  │
-│  │                             VPC  10.0.0.0/16                                │  │
-│  │                                                                             │  │
-│  │  ┌─────────────────────────┐  ┌─────────────────────────┐                  │  │
-│  │  │   Public Band (ALB/NAT) │  │   Node Band (Workers)   │                  │  │
-│  │  │   10.0.8.0/24  AZ-a     │  │   10.0.0.0/24  AZ-a     │                  │  │
-│  │  │   10.0.9.0/24  AZ-b     │  │   10.0.1.0/24  AZ-b     │                  │  │
-│  │  │                         │  │                         │                  │  │
-│  │  │   IGW · NAT GW (×AZ)    │  │   t3.medium × 2–6       │                  │  │
-│  │  │   ALB — Grafana         │  │   1 IP/node (custom CNI) │                  │  │
-│  │  └─────────────────────────┘  └─────────────────────────┘                  │  │
-│  │                                                                             │  │
-│  │  ┌─────────────────────────────────────────────────────┐                   │  │
-│  │  │              Pod Band (Custom Networking)           │                   │  │
-│  │  │              10.0.32.0/19  AZ-a  (~8k IPs)          │                   │  │
-│  │  │              10.0.64.0/19  AZ-b  (~8k IPs)          │                   │  │
-│  │  └─────────────────────────────────────────────────────┘                   │  │
-│  │                                                                             │  │
-│  │  ┌─────────────────────────────────────────────────────────────────────┐   │  │
-│  │  │              EKS Cluster (Kubernetes 1.34)                          │   │  │
-│  │  │   Managed Control Plane · OIDC · EBS CSI addon · VPC CNI addon      │   │  │
-│  │  └─────────────────────────────────────────────────────────────────────┘   │  │
-│  │                                                                             │  │
-│  │  VPC Endpoints: S3 (Gateway) · ECR API · ECR DKR · STS                    │  │
-│  │  VPC Flow Logs → CloudWatch Logs (30d retention)                           │  │
-│  └─────────────────────────────────────────────────────────────────────────────┘  │
-└───────────────────────────────────────────────────────────────────────────────────┘
++-----------------------------------------------------------------------------------+
+|                              AWS / Region: us-east-2                               |
+|  +-----------------------------------------------------------------------------+  |
+|  |                             VPC  10.0.0.0/16                                 |  |
+|  |                                                                              |  |
+|  |  +-------------------------+  +---------------------------+                  |  |
+|  |  | Public Band (ALB/NAT)   |  | Node Band (Workers)       |                  |  |
+|  |  | 10.0.8.0/24  AZ-a       |  | 10.0.0.0/24  AZ-a         |                  |  |
+|  |  | 10.0.9.0/24  AZ-b       |  | 10.0.1.0/24  AZ-b         |                  |  |
+|  |  |                         |  |                           |                  |  |
+|  |  | IGW / NAT GW (xAZ)     |  | t3.medium x 2-6           |                  |  |
+|  |  | ALB -- Grafana          |  | 1 IP/node (custom CNI)    |                  |  |
+|  |  +-------------------------+  +---------------------------+                  |  |
+|  |                                                                              |  |
+|  |  +-----------------------------------------------------+                    |  |
+|  |  |              Pod Band (Custom Networking)            |                    |  |
+|  |  |              10.0.32.0/19  AZ-a  (~8k IPs)           |                    |  |
+|  |  |              10.0.64.0/19  AZ-b  (~8k IPs)           |                    |  |
+|  |  +-----------------------------------------------------+                    |  |
+|  |                                                                              |  |
+|  |  +-------------------------------------------------------------------+      |  |
+|  |  |              EKS Cluster (Kubernetes 1.34)                        |      |  |
+|  |  |   Managed Control Plane / OIDC / EBS CSI addon / VPC CNI addon    |      |  |
+|  |  +-------------------------------------------------------------------+      |  |
+|  |                                                                              |  |
+|  |  VPC Endpoints: S3 (Gateway) / ECR API / ECR DKR / STS                      |  |
+|  |  VPC Flow Logs -> CloudWatch Logs (30d retention)                            |  |
+|  +-----------------------------------------------------------------------------+  |
++-----------------------------------------------------------------------------------+
 ```
 
 ### Stack de Observabilidade
 
 ```
-              ┌──────────────────────────────────────────┐
-              │                 Grafana                  │  ← ALB
-              └───────────┬──────────────────────────────┘
-                          │
-           ┌──────────────┼──────────────┐
-           ▼              ▼              ▼
+              +------------------------------------------+
+              |                 Grafana                  |  <- ALB
+              +-----------+------------------------------+
+                          |
+           +--------------+--------------+
+           v              v              v
       Prometheus         Loki          Tempo
       (metrics)         (logs)        (traces)
-           ▲           ▲   ▲             ▲
-           │    Promtail   │             │
-           │    (DaemonSet)│             │
-           └───────────────┴─────────────┘
-                           ▲
+           ^           ^   ^             ^
+           |    Promtail   |             |
+           |    (DaemonSet)|             |
+           +---------------+-------------+
+                           ^
                     OTel Collector
                (OTLP gRPC/HTTP + Zipkin)
-                    ▲             ▲
-           ┌────────┘             └────────┐
-           │                              │
+                    ^             ^
+           +--------+             +--------+
+           |                               |
     otel-test-app                     node-ws
   (Zipkin, fake-service)     (OTLP, OTel Operator SDK)
 ```
@@ -150,38 +150,38 @@ Antes de implantar este projeto, certifique-se de ter o seguinte instalado:
 
 ```
 sl-eks/
-├── infra/                              # Camada de infraestrutura AWS
-│   ├── eks-cluster.tf                 # Cluster EKS, node groups, addon EBS CSI
-│   ├── iam.tf                         # Roles IRSA para EBS CSI e ALB controller
-│   ├── iam_policy.json                # Política IAM do ALB controller
-│   ├── vpc.tf                         # VPC, subnets, NAT Gateway, IGW
-│   ├── sg.tf                          # Security group dos worker nodes
-│   ├── outputs.tf                     # Outputs consumidos pela camada apps/
-│   ├── variables.tf                   # Variáveis de entrada
-│   ├── versions.tf                    # Versões dos providers
-│   ├── backend.tf                     # Configuração do backend Terraform
-│   └── README.md                      # Documentação detalhada da camada infra
-├── apps/                              # Camada de aplicações Kubernetes
-│   ├── helm.tf                        # Todos os Helm releases
-│   ├── k8s-resources.tf               # StorageClass gp3
-│   ├── providers.tf                   # Providers helm e kubernetes
-│   ├── variables.tf                   # Variáveis de entrada
-│   ├── versions.tf                    # Versões dos providers
-│   ├── backend.tf                     # Configuração do backend Terraform
-│   ├── app-chart/                     # Chart Helm genérico de aplicação (node-ws)
-│   ├── otel-test-app-chart/           # Chart Helm do fake-service (otel-test-app)
-│   ├── otel-platform-chart/           # Chart Helm com Instrumentation CRs compartilhados
-│   ├── values/                        # Values dos charts Helm
-│   │   ├── values-alb-controller.yaml
-│   │   ├── values-kube-prometheus-stack.yaml
-│   │   ├── values-loki.yaml
-│   │   ├── values-tempo.yaml
-│   │   ├── values-otel-collector.yaml
-│   │   └── values-otel-operator.yaml
-│   ├── README.md                      # Documentação detalhada da camada apps
-│   └── README-otel.md                 # Detalhamento do pipeline de tracing OTel
-├── .gitignore
-└── README.md
++-- infra/                              # Camada de infraestrutura AWS
+|   +-- eks-cluster.tf                 # Cluster EKS, node groups, addon EBS CSI
+|   +-- iam.tf                         # Roles IRSA para EBS CSI e ALB controller
+|   +-- iam_policy.json                # Política IAM do ALB controller
+|   +-- vpc.tf                         # VPC, subnets, NAT Gateway, IGW
+|   +-- sg.tf                          # Security group dos worker nodes
+|   +-- outputs.tf                     # Outputs consumidos pela camada apps/
+|   +-- variables.tf                   # Variáveis de entrada
+|   +-- versions.tf                    # Versões dos providers
+|   +-- backend.tf                     # Configuração do backend Terraform
+|   +-- README.md                      # Documentação detalhada da camada infra
++-- apps/                              # Camada de aplicações Kubernetes
+|   +-- helm.tf                        # Todos os Helm releases
+|   +-- k8s-resources.tf               # StorageClass gp3
+|   +-- providers.tf                   # Providers helm e kubernetes
+|   +-- variables.tf                   # Variáveis de entrada
+|   +-- versions.tf                    # Versões dos providers
+|   +-- backend.tf                     # Configuração do backend Terraform
+|   +-- app-chart/                     # Chart Helm genérico de aplicação (node-ws)
+|   +-- otel-test-app-chart/           # Chart Helm do fake-service (otel-test-app)
+|   +-- otel-platform-chart/           # Chart Helm com Instrumentation CRs compartilhados
+|   +-- values/                        # Values dos charts Helm
+|   |   +-- values-alb-controller.yaml
+|   |   +-- values-kube-prometheus-stack.yaml
+|   |   +-- values-loki.yaml
+|   |   +-- values-tempo.yaml
+|   |   +-- values-otel-collector.yaml
+|   |   +-- values-otel-operator.yaml
+|   +-- README.md                      # Documentação detalhada da camada apps
+|   +-- README-otel.md                 # Detalhamento do pipeline de tracing OTel
++-- .gitignore
++-- README.md
 ```
 
 > Documentação detalhada de cada recurso: [infra/README.md](infra/README.md) e [apps/README.md](apps/README.md)
@@ -414,7 +414,7 @@ prometheus:
 
 # apps/values/values-tempo.yaml
 tempo:
-  retention: 24h          # Retenção de traces (curta — aumente conforme necessário)
+  retention: 24h          # Retencao de traces (curta - aumente conforme necessario)
 
 # apps/values/values-loki.yaml
 singleBinary:

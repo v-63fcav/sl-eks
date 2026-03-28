@@ -16,6 +16,7 @@ jobs:
   infra-cluster:
     name: Infra — VPC + EKS Cluster
     runs-on: ubuntu-latest
+    environment: production
     permissions:
       contents: read
       id-token: write
