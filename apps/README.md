@@ -1,8 +1,8 @@
-# ps-sl — Camada de Aplicações
+# apps
 
-Este diretório contém a configuração Terraform que instala todos os workloads Kubernetes no cluster EKS produzido pela camada `infra/`. Tudo é implantado via Helm releases ou recursos nativos do Kubernetes. O stack forma uma plataforma completa de observabilidade (métricas, logs, traces) mais aplicações de exemplo instrumentadas.
+Terceira camada do cluster. Instala todos os workloads Kubernetes no cluster EKS produzido pelas camadas `infra-cluster/` e `infra-resources/`. Tudo é implantado via Helm releases ou recursos nativos do Kubernetes. O stack forma uma plataforma completa de observabilidade (métricas, logs, traces) mais aplicações de exemplo instrumentadas com OpenTelemetry.
 
-## Visão Geral da Arquitetura
+## 🏗️ Visão Geral da Arquitetura
 
 ```
               +------------------------------------------+
@@ -33,11 +33,11 @@ Para o diagrama completo do fluxo de dados de tracing, consulte [Stack de Observ
 
 ---
 
-## Serviços
+## 📦 Serviços
 
-### AWS Load Balancer Controller
+### ⚖️ AWS Load Balancer Controller
 
-| | |
+| Parâmetro | Valor |
 |---|---|
 | Chart | `aws/aws-load-balancer-controller` |
 | Namespace | `kube-system` |
@@ -49,9 +49,9 @@ Observa recursos `Ingress` com `ingressClassName: alb` e provisiona AWS Applicat
 
 ---
 
-### kube-prometheus-stack
+### 📈 kube-prometheus-stack
 
-| | |
+| Parâmetro | Valor |
 |---|---|
 | Chart | `prometheus-community/kube-prometheus-stack` v69.3.1 |
 | Namespace | `monitoring` |
@@ -73,9 +73,9 @@ Chart guarda-chuva que instala:
 
 ---
 
-### Loki
+### 📋 Loki
 
-| | |
+| Parâmetro | Valor |
 |---|---|
 | Chart | `grafana/loki` v6.29.0 |
 | Namespace | `monitoring` |
@@ -95,9 +95,9 @@ O Loki é um backend passivo — ele apenas armazena logs que são enviados para
 
 ---
 
-### Promtail
+### 🔍 Promtail
 
-| | |
+| Parâmetro | Valor |
 |---|---|
 | Chart | `grafana/promtail` (latest) |
 | Namespace | `monitoring` |
@@ -111,9 +111,9 @@ Logs são enviados para: `http://loki.monitoring.svc.cluster.local:3100/loki/api
 
 ---
 
-### Tempo
+### ⏱️ Tempo
 
-| | |
+| Parâmetro | Valor |
 |---|---|
 | Chart | `grafana/tempo` v1.14.0 |
 | Namespace | `monitoring` |
@@ -132,9 +132,9 @@ O datasource Tempo no Grafana é pré-configurado com **correlação trace→log
 
 ---
 
-### OpenTelemetry Collector
+### 🔄 OpenTelemetry Collector
 
-| | |
+| Parâmetro | Valor |
 |---|---|
 | Chart | `open-telemetry/opentelemetry-collector` v0.118.0 |
 | Namespace | `monitoring` |
@@ -159,9 +159,9 @@ Zipkin:     opentelemetry-collector.monitoring.svc.cluster.local:9411
 
 ---
 
-### OpenTelemetry Operator
+### 🤖 OpenTelemetry Operator
 
-| | |
+| Parâmetro | Valor |
 |---|---|
 | Chart | `open-telemetry/opentelemetry-operator` (latest) |
 | Namespace | `opentelemetry-operator-system` |
@@ -183,9 +183,9 @@ Não requer cert-manager — o operator gera seu próprio certificado de webhook
 
 ---
 
-### otel-platform
+### 🧩 otel-platform
 
-| | |
+| Parâmetro | Valor |
 |---|---|
 | Chart | local `./charts/otel-platform-chart` |
 | Namespace | `default` |
@@ -201,9 +201,9 @@ Implanta `Instrumentation` CRs compartilhados por todas as aplicações no names
 
 ---
 
-### node-ws
+### 🖥️ node-ws
 
-| | |
+| Parâmetro | Valor |
 |---|---|
 | Chart | local `./charts/app-chart` |
 | Namespace | `default` |
@@ -219,9 +219,9 @@ O `app-chart` é agnóstico à aplicação — o nome da app, nome do serviço e
 
 ---
 
-### otel-test-app
+### 🧪 otel-test-app
 
-| | |
+| Parâmetro | Valor |
 |---|---|
 | Chart | local `./charts/otel-test-app-chart` |
 | Namespace | `default` |
@@ -235,26 +235,38 @@ Serviço HTTP Go pré-construído (`nicholasjackson/fake-service:v0.26.2`) usado
 
 ---
 
-## Dependências de Infraestrutura
+## 🔗 Dependências de Infraestrutura
 
 | Recurso | Arquivo | Finalidade |
 |---|---|---|
-| `kubernetes_storage_class_v1.gp3` | [../infra/k8s-resources.tf](../infra/k8s-resources.tf) | StorageClass EBS gp3 (criptografada, `Retain`, `WaitForFirstConsumer`) usada por todos os PVCs |
+| `kubernetes_manifest.gp3_storage_class` | [../infra-resources/storage.tf](../infra-resources/storage.tf) | StorageClass EBS gp3 (criptografada, `Retain`, `WaitForFirstConsumer`) usada por todos os PVCs |
 
-Todos os Helm releases que criam PVCs dependem desta StorageClass estar presente. Como ela é provisionada na camada `infra/`, que executa antes de `apps/`, a dependência é satisfeita pela ordem do pipeline.
+Todos os Helm releases que criam PVCs dependem desta StorageClass estar presente. Como ela é provisionada na camada `infra-resources/`, que executa antes de `apps/`, a dependência é satisfeita pela ordem do pipeline.
 
 ---
 
-## Deploy
+## 🚦 Deploy
 
 ```bash
-# Primeiro, a partir do diretório infra/
-cd infra && terraform apply
+# 1. Infraestrutura base — VPC + EKS
+cd infra-cluster && terraform apply
 
-# Em seguida, implante os apps
+# 2. Recursos do cluster — node group + addons + StorageClass
+cd ../infra-resources
+terraform apply \
+  -var="cluster_name=<cluster_name>" \
+  -var="kube_host=<cluster_endpoint>" \
+  -var="kube_ca=<cluster_ca>"
+
+# 3. Aplicações — Helm releases
 cd ../apps
-terraform init   # necessário após adicionar o provider time
-terraform apply
+terraform init
+terraform apply \
+  -var="cluster_name=<cluster_name>" \
+  -var="kube_host=<cluster_endpoint>" \
+  -var="kube_ca=<cluster_ca>" \
+  -var="alb_irsa_role=<alb_irsa_role>" \
+  -var="vpc_id=<vpc_id>"
 ```
 
 Após o `terraform apply`:
@@ -266,7 +278,7 @@ Após o `terraform apply`:
 
 ---
 
-## Stack de Observabilidade OpenTelemetry
+## 📊 Stack de Observabilidade OpenTelemetry
 
 Este documento descreve a configuração de tracing distribuído implantada neste cluster EKS.
 Dois métodos complementares de instrumentação são usados, ambos roteando pelo mesmo
@@ -274,7 +286,7 @@ OTel Collector e chegando ao Grafana Tempo.
 
 ---
 
-### Índice
+### 📋 Índice
 
 1. [Visão Geral](#visão-geral)
 2. [Stack 1 — OTel Collector (Tradução de Protocolo)](#stack-1--otel-collector-tradução-de-protocolo)
@@ -294,7 +306,7 @@ OTel Collector e chegando ao Grafana Tempo.
 
 ---
 
-### Visão Geral
+### 🎯 Visão Geral
 
 ```
 +-----------------------------------------------------------------------------+
@@ -335,7 +347,7 @@ e visíveis no Grafana pelo respectivo `service.name`.
 
 ---
 
-### Stack 1 — OTel Collector (Tradução de Protocolo)
+### 🔄 Stack 1 — OTel Collector (Tradução de Protocolo)
 
 **App:** `otel-test-app` (fake-service)
 **Como instrumentada:** Embutido — a imagem já vem com tracing Zipkin habilitado via variável de ambiente.
@@ -374,7 +386,7 @@ ele traduz de forma transparente e o Tempo nunca vê Zipkin.
 
 ---
 
-### Stack 2 — OTel Operator (Auto-Instrumentação)
+### 🤖 Stack 2 — OTel Operator (Auto-Instrumentação)
 
 **App:** `node-ws` (app-chart)
 **Como instrumentada:** Zero-code — o OTel Operator injeta o SDK Node.js na inicialização do pod via webhook mutante.
@@ -416,9 +428,9 @@ Usuário / curl
                        Tempo
 ```
 
-#### Por que usar o Operator?
+#### ❓ Por que usar o Operator?
 
-| | Stack Collector | Stack Operator |
+| Critério | Stack Collector | Stack Operator |
 |---|---|---|
 | Mudanças de código necessárias | Nenhuma | Nenhuma |
 | Funciona com qualquer linguagem | Não (app deve falar Zipkin/OTLP) | Sim (injeção de SDK específico da linguagem) |
@@ -428,7 +440,7 @@ Usuário / curl
 
 ---
 
-### Backend Compartilhado
+### 🔗 Backend Compartilhado
 
 Ambos os stacks enviam todos os traces pelo mesmo Collector, para a mesma instância do Tempo,
 e são visíveis no mesmo workspace do Grafana — filtrados por `service.name`.
@@ -441,22 +453,22 @@ Grafana -> Explore -> Tempo -> Search
 
 ---
 
-### Detalhamento dos Componentes
+### 🔬 Detalhamento dos Componentes
 
-#### fake-service (otel-test-app)
+#### 🧪 fake-service (otel-test-app)
 
 **Imagem:** `nicholasjackson/fake-service:v0.26.2`
 **Namespace:** `default`
 **Chart:** `apps/charts/otel-test-app-chart/` (chart Helm local)
 
-##### Variáveis de ambiente principais
+##### ⚙️ Variáveis de ambiente principais
 
 | Variável | Valor | Finalidade |
 |---|---|---|
 | `NAME` | `otel-test-app` | Define o nome do serviço reportado nos traces |
 | `TRACING_ZIPKIN` | `http://opentelemetry-collector.monitoring:9411/api/v2/spans` | Onde fazer POST dos spans no formato Zipkin |
 
-##### Endpoints
+##### 🌐 Endpoints
 
 | Caminho | Descrição |
 |---|---|
@@ -465,7 +477,7 @@ Grafana -> Explore -> Tempo -> Search
 
 ---
 
-#### node-ws (app-chart)
+#### 🖥️ node-ws (app-chart)
 
 **Imagem:** `node:20-alpine`
 **Namespace:** `default`
@@ -475,7 +487,7 @@ A aplicação é um servidor HTTP Node.js mínimo inline. Não possui OTel SDK e
 código-fonte — o Operator injeta o SDK na inicialização do pod via `NODE_OPTIONS`. A app
 se identifica no Tempo via variável de ambiente no pod, não pelo Instrumentation CR compartilhado.
 
-##### Values principais
+##### ⚙️ Values principais
 
 | Value | Padrão | Finalidade |
 |---|---|---|
@@ -483,7 +495,7 @@ se identifica no Tempo via variável de ambiente no pod, não pelo Instrumentati
 | `otel.instrumentationRef` | `nodejs` | Nome do CR `Instrumentation` a usar do `otel-platform-chart` |
 | `otel.inject` | `true` | Liga/desliga a anotação de injeção |
 
-##### Recursos principais
+##### 📦 Recursos principais
 
 | Recurso | Nome | Finalidade |
 |---|---|---|
@@ -491,7 +503,7 @@ se identifica no Tempo via variável de ambiente no pod, não pelo Instrumentati
 | Variável de ambiente do pod | `OTEL_SERVICE_NAME=node-ws` | Nome de serviço específico da app no Tempo |
 | Init container (injetado) | `opentelemetry-auto-instrumentation-nodejs` | Copia arquivos do SDK para dentro do pod |
 
-##### Verificar se a injeção funcionou
+##### ✅ Verificar se a injeção funcionou
 
 ```bash
 kubectl describe pod -n default -l app.kubernetes.io/name=node-ws \
@@ -504,7 +516,7 @@ kubectl exec -n default deploy/node-ws -- env | grep NODE_OPTIONS
 
 ---
 
-#### OpenTelemetry Collector
+#### 🔄 OpenTelemetry Collector
 
 **Imagem:** `otel/opentelemetry-collector-contrib`
 **Chart:** `open-telemetry/opentelemetry-collector v0.118.0`
@@ -514,7 +526,7 @@ kubectl exec -n default deploy/node-ws -- env | grep NODE_OPTIONS
 A imagem `-contrib` inclui componentes contribuídos pela comunidade: o receiver `zipkin`
 e o exporter `loki`, que não estão na distribuição principal.
 
-##### Receivers
+##### 📡 Receivers
 
 ```yaml
 receivers:
@@ -526,7 +538,7 @@ receivers:
     endpoint: "0.0.0.0:9411"               # fake-service (stack Collector)
 ```
 
-##### Processadores
+##### ⚙️ Processadores
 
 **`memory_limiter`** (executa primeiro em todo pipeline)
 ```yaml
@@ -545,7 +557,7 @@ batch:
 ```
 Reduz overhead de rede — 1 requisição por 1000 spans em vez de 1000 requisições individuais.
 
-##### Pipelines
+##### 🔀 Pipelines
 
 ```
 pipeline de traces:
@@ -566,7 +578,7 @@ pipeline de logs:
 
 ---
 
-#### OpenTelemetry Operator
+#### 🤖 OpenTelemetry Operator
 
 **Chart:** `open-telemetry/opentelemetry-operator`
 **Namespace:** `opentelemetry-operator-system`
@@ -601,7 +613,7 @@ esteja disponível antes que o `otel-platform-chart` tente criar um CR `Instrume
 
 ---
 
-#### otel-platform (Instrumentation CRs compartilhados)
+#### 🧩 otel-platform (Instrumentation CRs compartilhados)
 
 **Chart:** `apps/charts/otel-platform-chart/` (chart Helm local)
 **Namespace:** `default`
@@ -614,13 +626,13 @@ individuais das aplicações para que:
 - Todas as apps compartilhem o mesmo endpoint do collector e configuração de sampling
 - O time de plataforma controle versões de SDK e sampling de forma independente dos times de app
 
-##### CRs atuais
+##### 📋 CRs atuais
 
 | Nome do CR | Linguagem | Anotação para usar |
 |---|---|---|
 | `nodejs` | Node.js | `inject-nodejs: "nodejs"` |
 
-##### Decisão de design: sem `OTEL_SERVICE_NAME` no CR
+##### 🏗️ Decisão de design: sem `OTEL_SERVICE_NAME` no CR
 
 `OTEL_SERVICE_NAME` é omitido intencionalmente do CR compartilhado. Cada app o define
 como variável de ambiente no pod, que tem precedência sobre qualquer coisa que o Operator injetaria.
@@ -645,7 +657,7 @@ env:
 
 ---
 
-#### Tempo
+#### ⏱️ Tempo
 
 **Chart:** `grafana/tempo v1.14.0`
 **Namespace:** `monitoring`
@@ -657,7 +669,7 @@ na porta 3100. Um `ServiceMonitor` é habilitado para que o Prometheus colete as
 
 ---
 
-#### Grafana
+#### 📊 Grafana
 
 **Chart:** `kube-prometheus-stack` (Grafana integrado)
 **Namespace:** `monitoring`
@@ -678,9 +690,9 @@ additionalDataSources:
 
 ---
 
-### Internos do Pipeline
+### ⚙️ Internos do Pipeline
 
-#### Por que a ordem dos processadores importa
+#### 🔢 Por que a ordem dos processadores importa
 
 ```
 [receiver] -> memory_limiter -> batch -> [exporter]
@@ -689,7 +701,7 @@ additionalDataSources:
 O `memory_limiter` deve vir **antes** do `batch`. Se viesse depois, o processador batch
 já teria acumulado dados em memória antes que o limiter pudesse agir.
 
-#### Tradução de protocolo (Stack 1: Zipkin → OTLP)
+#### 🔄 Tradução de protocolo (Stack 1: Zipkin → OTLP)
 
 ```
 fake-service produz:
@@ -712,7 +724,7 @@ Collector zipkin receiver converte para:
   }
 ```
 
-#### Auto-instrumentação (Stack 2: injeção de SDK)
+#### 🤖 Auto-instrumentação (Stack 2: injeção de SDK)
 
 ```
 NODE_OPTIONS=--require @opentelemetry/auto-instrumentations-node/register
@@ -727,7 +739,7 @@ OTEL_SERVICE_NAME vem da variável de ambiente no pod (definida pelos values do 
 não do Instrumentation CR compartilhado.
 ```
 
-#### Ordem de deploy (Terraform)
+#### 🚦 Ordem de deploy (Terraform)
 
 ```
 otel_operator
@@ -741,7 +753,7 @@ node_ws        <- pods agendados, webhook dispara, CR encontrado, SDK injetado O
 
 ---
 
-### Referência de Portas
+### 🔌 Referência de Portas
 
 | Serviço | Porta | Protocolo | Finalidade |
 |---|---|---|---|
@@ -758,9 +770,9 @@ node_ws        <- pods agendados, webhook dispara, CR encontrado, SDK injetado O
 
 ---
 
-### Como Testar
+### ✅ Como Testar
 
-#### Stack 1 — fake-service
+#### 🧪 Stack 1 — fake-service
 
 ```bash
 # Obter o hostname do ALB
@@ -774,7 +786,7 @@ for i in $(seq 1 20); do curl -s http://$ALB/ > /dev/null; done
 # Ver no Grafana: Explore -> Tempo -> Service Name: otel-test-app
 ```
 
-#### Stack 2 — node-ws
+#### 🖥️ Stack 2 — node-ws
 
 ```bash
 # Obter o hostname do ALB
@@ -788,7 +800,7 @@ for i in $(seq 1 20); do curl -s http://$ALB/ > /dev/null; done
 # Ver no Grafana: Explore -> Tempo -> Service Name: node-ws
 ```
 
-#### Verificar se a injeção funcionou (Stack 2)
+#### ✅ Verificar se a injeção funcionou (Stack 2)
 
 ```bash
 # Init container deve estar presente
@@ -802,7 +814,7 @@ kubectl exec -n default deploy/node-ws -- env | grep NODE_OPTIONS
 kubectl get instrumentation -n default
 ```
 
-#### Verificar se o pipeline compartilhado está saudável
+#### 💚 Verificar se o pipeline compartilhado está saudável
 
 ```bash
 # Collector recebeu e repassou os spans
