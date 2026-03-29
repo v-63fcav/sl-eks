@@ -43,7 +43,7 @@ Para o diagrama completo do fluxo de dados de tracing, consulte [Stack de Observ
 | Namespace | `kube-system` |
 | Values | [values/values-alb-controller.yaml](values/values-alb-controller.yaml) |
 
-Observa recursos `Ingress` com `ingressClassName: alb` e provisiona AWS Application Load Balancers automaticamente. Usa IRSA (IAM Roles for Service Accounts) para que nenhuma credencial estática seja necessária — o ARN da role IRSA é injetado no momento do deploy a partir dos outputs de `infra/`.
+Observa recursos `Ingress` com `ingressClassName: alb` e provisiona AWS Application Load Balancers automaticamente. Usa IRSA (IAM Roles for Service Accounts) para que nenhuma credencial estática seja necessária — o ARN da role IRSA é injetado no momento do deploy a partir dos outputs de `infra-cluster/`.
 
 **Como usar:** anote qualquer `Ingress` com `ingressClassName: alb`. O controller cria e gerencia o ciclo de vida do ALB.
 
@@ -189,7 +189,7 @@ Não requer cert-manager — o operator gera seu próprio certificado de webhook
 |---|---|
 | Chart | local `./charts/otel-platform-chart` |
 | Namespace | `default` |
-| Values | [otel-platform-chart/values.yaml](otel-platform-chart/values.yaml) |
+| Values | [charts/otel-platform-chart/values.yaml](charts/otel-platform-chart/values.yaml) |
 
 Implanta `Instrumentation` CRs compartilhados por todas as aplicações no namespace `default`. Desacoplado dos charts individuais das aplicações para que adicionar uma nova app não exija mudanças na camada de plataforma.
 
@@ -207,7 +207,7 @@ Implanta `Instrumentation` CRs compartilhados por todas as aplicações no names
 |---|---|
 | Chart | local `./charts/app-chart` |
 | Namespace | `default` |
-| Values | [app-chart/values.yaml](app-chart/values.yaml) |
+| Values | [charts/app-chart/values.yaml](charts/app-chart/values.yaml) |
 
 Servidor web Node.js mínimo (`node:20-alpine`) auto-instrumentado pelo OTel Operator. Exposto via ALB voltado para internet.
 
@@ -225,7 +225,7 @@ O `app-chart` é agnóstico à aplicação — o nome da app, nome do serviço e
 |---|---|
 | Chart | local `./charts/otel-test-app-chart` |
 | Namespace | `default` |
-| Values | [otel-test-app-chart/values.yaml](otel-test-app-chart/values.yaml) |
+| Values | [charts/otel-test-app-chart/values.yaml](charts/otel-test-app-chart/values.yaml) |
 
 Serviço HTTP Go pré-construído (`nicholasjackson/fake-service:v0.26.2`) usado para gerar traces realistas sem escrever código de aplicação. Possui tracing Zipkin embutido — os spans são enviados ao OTel Collector na porta `:9411`, que os converte para OTLP e repassa ao Tempo.
 
@@ -354,7 +354,7 @@ e visíveis no Grafana pelo respectivo `service.name`.
 **Protocolo de tracing:** Zipkin HTTP → OTel Collector → OTLP → Tempo
 
 ```
-Usuario / curl
+Usuário / curl
     |  HTTP :80 (ALB)
     v
 +-----------------------------------------------------+
@@ -365,10 +365,10 @@ Usuario / curl
 |  env: TRACING_ZIPKIN=http://opentelemetry-           |
 |       collector.monitoring:9411/api/v2/spans         |
 |                                                      |
-|  A cada requisicao:                                  |
-|    1. Processa a requisicao HTTP                     |
+|  A cada requisição:                                  |
+|    1. Processa a requisição HTTP                     |
 |    2. Registra tempo e status                        |
-|    3. Constroi um span Zipkin                        |
+|    3. Constrói um span Zipkin                        |
 |    4. Faz POST do span para TRACING_ZIPKIN           |
 +------------------------+----------------------------+
                          |  POST /api/v2/spans (Zipkin, :9411)
@@ -639,7 +639,7 @@ como variável de ambiente no pod, que tem precedência sobre qualquer coisa que
 Isso significa que um único CR serve todas as apps Node.js no namespace sem modificação.
 
 ```yaml
-# otel-platform-chart - compartilhado, sem nome de servico
+# otel-platform-chart - compartilhado, sem nome de serviço
 spec:
   nodejs:
     env:
@@ -649,7 +649,7 @@ spec:
         value: http/protobuf
       # OTEL_SERVICE_NAME deliberadamente ausente
 
-# app-chart - variavel de ambiente no pod por app
+# app-chart - variável de ambiente no pod por app
 env:
   - name: OTEL_SERVICE_NAME
     value: node-ws      # cada app define o seu próprio

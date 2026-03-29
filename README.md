@@ -152,6 +152,7 @@ sl-eks/
 │   ├── outputs.tf              # Outputs consumidos pelas camadas seguintes
 │   ├── variables.tf            # Variáveis de entrada
 │   ├── versions.tf             # Versões dos providers
+│   ├── providers.tf            # Configuração dos providers
 │   ├── backend.tf              # Backend S3
 │   └── README.md
 ├── infra-resources/            # Camada 2 — Node group, addons, StorageClass
@@ -163,6 +164,7 @@ sl-eks/
 │   ├── outputs.tf              # Outputs repassados ao job apps
 │   ├── variables.tf            # Variáveis de entrada
 │   ├── versions.tf             # Versões dos providers
+│   ├── providers.tf            # Configuração dos providers
 │   ├── backend.tf              # Backend S3
 │   └── README.md
 ├── apps/                       # Camada 3 — Helm releases
@@ -180,6 +182,7 @@ sl-eks/
 │   │   └── otel-platform-chart/# Instrumentation CRs compartilhados
 │   ├── variables.tf
 │   ├── versions.tf
+│   ├── providers.tf
 │   ├── backend.tf
 │   └── README.md
 └── .github/workflows/
